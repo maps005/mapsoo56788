@@ -156,7 +156,7 @@ def attachment_text(name: str, data: bytes, vision_cfg=None) -> str:
 
 def chat(d: Design, messages, cfg: Config, attachment: str | None = None) -> str:
     if not cfg.enabled:
-        raise AssistantError("The AI assistant is not set up on this server (set AI_CHAT_KEY or GROQ_API_KEY)")
+        raise AssistantError("The AI assistant is not set up on this server: add AI_CHAT_KEY (a Groq API key) to its environment variables")
     convo = clean_messages(messages)
     if attachment:  # the file goes with the latest question
         convo[-1]["content"] += "\n\n" + attachment

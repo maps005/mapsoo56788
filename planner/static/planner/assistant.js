@@ -78,7 +78,10 @@
     const msgs = chats[S.pid] || [];
     if (!status || !status.enabled) {
       log.innerHTML = `<div class="aiempty"><b>The AI assistant is not set up on this server.</b>
-        <p>An administrator adds a Groq API key as <code>AI_CHAT_KEY</code> in the server's environment and restarts it.</p></div>`;
+        <p>An administrator adds a Groq API key named <code>AI_CHAT_KEY</code> to the server's settings:</p>
+        <ul><li><b>Vercel:</b> Project &rarr; Settings &rarr; Environment Variables, then redeploy.</li>
+        <li><b>Docker / own server:</b> the <code>.env</code> file, then restart the app.</li></ul>
+        <p>Add <code>PHOTO_AI_PROVIDER=groq</code> and <code>PHOTO_AI_KEY</code> too for photo checks.</p></div>`;
       return;
     }
     if (!msgs.length) {
