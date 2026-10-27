@@ -87,24 +87,26 @@ WSGI_APPLICATION = "planner_site.wsgi.application"
 
 DATA_DIR = Path(os.environ.get("FTTH_DATA_DIR", "/tmp/archplanner" if ON_VERCEL else BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-def _database_url() -> str | None:
-    """DATABASE_URL, else the POSTGRES_URL injected by the Vercel Supabase integration (minus its non-libpq "supa" option)."""
-    url = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
-    if not url:
-        return None
+
+
+def _database_url() -> str:
+    """DATABASE_URL, or the POSTGRES_URL that Vercel's Supabase / Neon integrations set, without the extra query
+    options (pgbouncer=, supa=...) that are not PostgreSQL connection settings; SSL is required unless stated."""
     from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    url = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or ""
+    if not url.startswith(("postgres://", "postgresql://")):
+        return url
     parts = urlsplit(url)
-    query = dict(parse_qsl(parts.query))
-    query.pop("supa", None)
+    keep = {"sslmode", "sslrootcert", "connect_timeout", "application_name", "options", "target_session_attrs"}
+    query = dict((k, v) for k, v in parse_qsl(parts.query) if k in keep)
     query.setdefault("sslmode", "require")
     return urlunsplit(parts._replace(query=urlencode(query)))
 
 
 _db_url = _database_url()
-DATABASES = {"default": dj_database_url.parse(_db_url, conn_max_age=0 if ON_VERCEL else 600) if _db_url
-             else dj_database_url.parse(f"sqlite:///{(DATA_DIR / 'planner.sqlite3').as_posix()}", conn_max_age=600)}
-if str(DATABASES["default"].get("PORT")) == "6543":
-    # Supabase transaction pooler (PgBouncer) does not support server-side cursors
+DATABASES = {"default": dj_database_url.parse(_db_url, conn_max_age=0 if ON_VERCEL else 600) if _db_url else
+             dj_database_url.parse(f"sqlite:///{(DATA_DIR / 'planner.sqlite3').as_posix()}", conn_max_age=600)}
+if str(DATABASES["default"].get("PORT")) == "6543":  # Supabase transaction pooler (PgBouncer): no server-side cursors
     DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 if DATABASES["default"]["ENGINE"].endswith("sqlite3"):
     # Local SQLite: readers do not block the writer (WAL), writers queue for up to 30 s instead of failing with
