@@ -1,0 +1,397 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ brand.name }}</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="icon" href="{{ brand.icon }}">
+<link rel="stylesheet" href="{% static 'planner/style.css' %}?v=11">
+</head>
+<body data-can-approve="{{ can_approve|yesno:'true,false' }}" data-user="{{ user.username }}">
+<header>
+  <a class="brandbox" href="/projects/" title="{{ brand.name }}">{% include "planner/_brand.html" %}</a>
+  <div class="hproj">
+    <select id="projectSelect" title="Open project" aria-label="Open project"></select>
+    <button id="newProject" class="hbtn" title="New empty project">+ New</button>
+    <button id="newSample" class="hbtn ghost" title="Create a sample project to try the tools">Sample</button>
+  </div>
+  <div class="hstatus">
+    <span id="saveState" class="pill">-</span>
+    <span id="issueBadge" class="pill" title="Validation issues">-</span>
+    <span id="revBadge" class="pill">-</span>
+  </div>
+  <span class="spacer"></span>
+  <nav class="hnav"><a href="/projects/">Projects</a><a href="/review/" id="navReview">Review</a><a href="/company/">Company</a>{% if user.is_staff %}<a href="{% url 'admin:index' %}">Admin</a>{% endif %}</nav>
+  <button id="btnAI" class="hbtn ai" title="Ask the AI assistant about this project" aria-controls="aiPanel" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
+    AI</button>
+  <button id="btnShare" class="hbtn" title="Share this project with another user">Share</button>
+  <details class="huser">
+    <summary class="avatar" title="{{ user.get_full_name|default:user.username }}" aria-label="Account menu">{{ user.get_full_name|default:user.username|slice:":1"|upper }}</summary>
+    <div class="umenu">
+      <div class="uname">{{ user.get_full_name|default:user.username }}</div>
+      <a href="/profile/">Profile</a>
+      <a href="/projects/" class="mnav">Projects</a><a href="/review/" class="mnav">Review</a><a href="/company/" class="mnav">Company</a>
+      {% if user.is_staff %}<a href="{% url 'admin:index' %}" class="mnav">Admin</a>{% endif %}
+      <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">Sign out</button></form>
+    </div>
+  </details>
+</header>
+
+<!-- The seven-step workflow: each card opens its stage and shows its live status -->
+<ol id="steps">
+  <li data-go="data" data-step="1"><span class="num">1</span><div class="stxt"><b>Ground Survey &amp; Data Collection</b>
+    <ul><li>Poles (IDs, GPS, condition)</li><li>Homes / MDUs</li><li>Existing infrastructure</li><li>Routes, crossings, entry points</li><li>Photos &amp; site notes</li></ul>
+    <span class="sstat" id="st1"></span></div>
+    <svg class="sico" viewBox="0 0 32 32"><circle cx="13" cy="6" r="3"/><path d="M13 10v9l-4 10M13 19l4 10M9 13h8M22 4l-3 25M22 4l4 25M20 12h5"/></svg></li>
+  <li data-go="data" data-step="2" data-anchor="dataset"><span class="num">2</span><div class="stxt"><b>Data Cleaning &amp; Validation</b>
+    <ul><li>Remove duplicates</li><li>Correct coordinates</li><li>Standardise IDs</li><li>Validate completeness</li></ul>
+    <span class="sstat" id="st2"></span></div>
+    <svg class="sico" viewBox="0 0 32 32"><ellipse cx="16" cy="7" rx="10" ry="4"/><path d="M6 7v18c0 2 4.5 4 10 4s10-2 10-4V7M6 13c0 2 4.5 4 10 4s10-2 10-4M6 19c0 2 4.5 4 10 4s10-2 10-4"/></svg></li>
+  <li data-go="map" data-step="3"><span class="num">3</span><div class="stxt"><b>HLD Design <small>(Google Earth / GIS)</small></b>
+    <ul><li>Define project boundary</li><li>Plot poles &amp; homes</li><li>Plan main &amp; spur routes</li><li>Place enclosures, JBs, FATs, PONs</li><li>Export KML/KMZ</li></ul>
+    <span class="sstat" id="st3"></span></div>
+    <svg class="sico" viewBox="0 0 32 32"><circle cx="16" cy="16" r="12"/><path d="M4 16h24M16 4c-5 6-5 18 0 24M16 4c5 6 5 18 0 24M7 9h18M7 23h18"/></svg></li>
+  <li data-go="materials" data-step="4"><span class="num">4</span><div class="stxt"><b>Material Assignment</b>
+    <ul><li>Select cable types</li><li>Choose accessories (J-hooks, UPBs...)</li><li>Identify poles, enclosures, FATs, PONs</li><li>Auto-calculate quantities</li></ul>
+    <span class="sstat" id="st4"></span></div>
+    <svg class="sico" viewBox="0 0 32 32"><path d="M16 3 29 10 16 17 3 10Z M3 16l13 7 13-7M3 22l13 7 13-7"/></svg></li>
+  <li data-go="lld" data-step="5"><span class="num">5</span><div class="stxt"><b>LLD Development <small>(AutoCAD)</small></b>
+    <ul><li>Digitise routes and equipment</li><li>Detailed cable paths</li><li>Core counts &amp; splicing points</li><li>Export CAD (DXF / PDF)</li></ul>
+    <span class="sstat" id="st5"></span></div>
+    <svg class="sico" viewBox="0 0 32 32"><rect x="4" y="4" width="24" height="24" rx="2"/><path d="M10 23 16 8l6 15M12 18h8"/></svg></li>
+  <li data-go="outputs" data-step="6"><span class="num">6</span><div class="stxt"><b>Generate Deliverables</b>
+    <ul><li>HLD (KML/PDF) · LLD (DXF/PDF)</li><li>Pole summary (Excel/PDF)</li><li>BOM · BOQ (Excel/PDF)</li><li>Splicing diagram (PDF/Excel)</li><li>Survey report (Word/PDF)</li></ul>
+    <span class="sstat" id="st6"></span></div>
+    <svg class="sico" viewBox="0 0 32 32"><path d="M8 3h12l6 6v20H8Z M20 3v6h6M12 15h10M12 20h10M12 25h6"/></svg></li>
+  <li data-go="qa" data-step="7"><span class="num">7</span><div class="stxt"><b>Quality Assurance &amp; Approval</b>
+    <ul><li>Cross-check all outputs</li><li>Validate quantities &amp; fibre allocation</li><li>Version control &amp; revisions</li><li>Final design package</li></ul>
+    <span class="sstat" id="st7"></span></div>
+    <svg class="sico" viewBox="0 0 32 32"><circle cx="16" cy="16" r="12"/><path d="m10 16 4 4 8-9"/></svg></li>
+</ol>
+
+<nav id="tabs">
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="data">Survey &amp; validation</button>
+  <button data-tab="map">HLD map</button>
+  <button data-tab="materials">Materials &amp; rules</button>
+  <button data-tab="lld">LLD drawing</button>
+  <button data-tab="schedules">Pole summary · BOM · BOQ</button>
+  <button data-tab="splicing">Splicing</button>
+  <button data-tab="report">Survey report</button>
+  <button data-tab="qa">QA &amp; approval</button>
+  <button data-tab="outputs">Outputs</button>
+  <button data-tab="settings">Settings</button>
+</nav>
+<main>
+  <!-- Overview: the whole design on one page, every panel drawn from the same project data -->
+  <section id="tab-overview" class="tab active">
+    <div class="ovgrid">
+      <div class="panel"><h2><span>1.</span> HLD DESIGN <small>(KML/KMZ)</small></h2>
+        <div id="ovMap" class="ovmap"></div>
+        <div class="legend" id="ovLegend"></div>
+        <div class="pfoot"><a data-dl="hld.kmz">KMZ</a><a data-dl="hld.kml">KML</a><a data-dl="hld.pdf">PDF</a><button data-go="map">Open map</button></div></div>
+      <div class="panel dark"><h2><span>2.</span> LLD DESIGN <small>(AutoCAD)</small></h2>
+        <div id="ovLld" class="lldbox"></div>
+        <div class="pfoot"><a data-dl="lld.dxf">DXF</a><a data-dl="lld.pdf">PDF</a><button data-go="lld">Open drawing</button></div></div>
+      <div class="panel"><h2><span>3.</span> POLE SUMMARY</h2>
+        <div id="ovPoles" class="ovtable"></div>
+        <div class="pfoot"><a data-dl="pole_summary.xlsx">Excel</a><a data-dl="pole_summary.pdf">PDF</a><button data-go="schedules">All poles</button></div></div>
+    </div>
+    <div class="ovgrid g4">
+      <div class="panel"><h2><span>4.</span> BOM</h2><div id="ovBom" class="ovtable"></div>
+        <div class="pfoot"><a data-dl="bom.xlsx">Excel</a><a data-dl="bom.pdf">PDF</a></div></div>
+      <div class="panel"><h2><span>5.</span> BOQ</h2><div id="ovBoq" class="ovtable"></div>
+        <div class="pfoot"><a data-dl="boq.xlsx">Excel</a><a data-dl="boq.pdf">PDF</a></div></div>
+      <div class="panel"><h2><span>6.</span> FIBRE SPLICING DIAGRAM</h2>
+        <div class="row"><label class="muted">PON <select id="ovPon"></select></label></div>
+        <div id="ovSplice" class="splicebox"></div>
+        <div class="pfoot"><a data-dl="splicing.pdf">PDF</a><a data-dl="splicing.xlsx">Excel</a><button data-go="splicing">Open editor</button></div></div>
+      <div class="panel"><h2><span>7.</span> SURVEY REPORT</h2><div id="ovReport"></div>
+        <div class="pfoot"><a data-dl="report.docx">Word</a><a data-dl="report.pdf">PDF</a><button data-go="report">Edit text</button></div></div>
+    </div>
+    <div id="central">
+      <div class="cdb"><svg viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="7" rx="10" ry="4"/><path d="M6 7v18c0 2 4.5 4 10 4s10-2 10-4V7M6 13c0 2 4.5 4 10 4s10-2 10-4M6 19c0 2 4.5 4 10 4s10-2 10-4"/></svg>
+        <div><b>One central database</b><span>Data is entered once and every deliverable is generated from it, so drawings, schedules and reports always agree.</span></div></div>
+      <div class="cfiles">
+        <div class="chead"><b>Deliverables</b><span id="fileProgress"></span>
+          <span class="clegend"><i class="dot fresh"></i>Up to date <i class="dot stale"></i>Needs regenerating <i class="dot"></i>Not generated</span></div>
+        <div id="fileIcons" class="files"></div>
+      </div>
+      <div class="cdb end"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12"/><path d="m10 16 4 4 8-9"/></svg>
+        <div><b>One design</b><span>Multiple outputs, fully integrated</span>
+          <button type="button" id="cdbPackage" class="cpkg">Download all (.zip)</button></div></div>
+    </div>
+  </section>
+
+  <section id="tab-lld" class="tab">
+    <div class="card dark">
+      <div class="row"><h3>LLD drawing (CAD view)</h3><span class="spacer"></span>
+        <a data-dl="lld.dxf"><button>Download DXF</button></a><a data-dl="lld.pdf"><button>Download PDF sheets</button></a></div>
+      <div class="row cadbar">
+        <button id="lldIn" title="Zoom in">+</button><button id="lldOut" title="Zoom out">&minus;</button>
+        <button id="lldFit" title="Zoom extents">Extents</button>
+        <button id="lldWin" title="Zoom window: drag a box">Window</button>
+        <button id="lldMeasure" title="Measure: click two or more points">&#128207; Measure</button>
+        <span class="sep"></span>
+        <details class="layers"><summary>Layers</summary><div id="lldLayers"></div></details>
+        <label class="muted">Text <input type="range" id="lldText" min="0.5" max="2.5" step="0.1"></label>
+        <label class="muted"><input type="checkbox" id="lldGrid"> Grid</label>
+        <label class="muted"><input type="checkbox" id="lldDark"> Black background</label>
+        <span class="sep"></span>
+        <button id="lldSvg" title="Save the drawing as SVG">SVG</button><button id="lldPng" title="Save as PNG image">PNG</button>
+        <button id="lldPrint" title="Print the drawing">Print</button>
+        <span class="spacer"></span><span id="lldCoord" class="muted coordtxt">-</span>
+      </div>
+      <div id="lldBig" class="lldbox big"></div>
+      <div id="lldMsg" class="muted"></div>
+      <p class="muted">Same data as the DXF and the A3 PDF sheets. Open the DXF in AutoCAD and save as DWG if a native DWG file is required.</p>
+    </div>
+  </section>
+
+  <section id="tab-settings" class="tab">
+    <div class="grid2">
+      <div class="card"><h3>Project &amp; drawing title block</h3>
+        <p class="muted">Printed on the LLD sheets, reports and file names. Saved with the project.</p>
+        <div id="setTitle" class="form"></div></div>
+      <div class="card"><h3>Auto-design options</h3>
+        <p class="muted">Used when you press Auto-design (saved in this browser). Defaults follow the company standard.</p>
+        <div class="form"><label>Design standard (design style + construction rules)<select id="stdSel"></select></label></div>
+        <div class="row"><button id="stdApply">Apply standard to this project</button></div>
+        <div id="setAuto" class="form"></div>
+        <div class="row"><button id="saveAuto" class="ok">Save options</button><button id="resetAuto">Company defaults</button></div></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Map &amp; drawing preferences</h3><div id="setPrefs" class="form"></div></div>
+      <div class="card"><h3>Construction rules, catalogue &amp; keyboard</h3>
+        <p class="muted">Quantity rules (J-hooks, tension clamps, UPBs, slack, cable allowances) and the material catalogue with rates are set per project.</p>
+        <div class="row"><button data-go="materials">Open materials &amp; rules</button><button type="button" id="setKeys">Keyboard shortcuts</button></div></div>
+    </div>
+  </section>
+
+  <section id="tab-map" class="tab">
+    <div id="toolbar">
+      <button id="btnUndo" title="Undo (Ctrl+Z)" disabled>&#8630; Undo</button>
+      <button id="btnRedo" title="Redo (Ctrl+Y)" disabled>&#8631; Redo</button>
+      <span class="sep"></span>
+      <button data-mode="select" class="active" title="Select / drag features (S)">Select</button>
+      <button data-mode="pole">+ Pole</button>
+      <button data-mode="home">+ Home</button>
+      <select id="nodeKind">
+        <option value="POP">POP</option><option value="ENCLOSURE">Splice enclosure</option>
+        <option value="PR_ENCLOSURE">PR enclosure</option><option value="JB">JB</option>
+        <option value="PON">PON (1st-stage)</option><option value="FAT" selected>FAT</option><option value="SLACK">Slack loop</option>
+      </select>
+      <button data-mode="node">+ Equipment</button>
+      <span class="sep"></span>
+      <select id="cableKind"><option value="main">Main</option><option value="spur" selected>Spur</option><option value="drop">Drop</option></select>
+      <select id="cableCores"></select>
+      <button data-mode="cable">Draw cable</button>
+      <button data-mode="boundary">Boundary</button>
+      <span class="sep"></span>
+      <button id="btnAssign" title="Assign unserved homes to nearest FAT with free ports">Auto-assign homes</button>
+      <button data-mode="extend" title="Click the map where the 48C backbone must reach (future phases)">Backbone end</button>
+      <button id="btnAutoDesign" class="ok" title="Design FATs, splitters, closures and cables from the survey data">Auto-design</button>
+      <button id="btnDelete" class="danger" title="Delete selected (Del)">Delete selected</button>
+      <span class="sep"></span>
+      <button data-mode="measure" title="Measure distance and area (M)">&#128207; Measure</button>
+      <input id="findBox" list="findList" placeholder="Find ID / name or lat, lon (/)" title="Find a feature by ID or name, or type coordinates to go there">
+      <datalist id="findList"></datalist>
+      <button id="btnLabels" title="Equipment labels on / off (L)">Labels</button>
+      <button id="btnFull" title="Fullscreen map (F, Esc to leave)">&#x26F6; Full</button>
+      <button id="btnPrint" title="Print the map">Print</button>
+      <button id="btnHelp" title="Keyboard shortcuts (?)">?</button>
+      <span class="spacer"></span>
+      <label><input type="checkbox" id="satellite"> Satellite</label>
+    </div>
+    <div class="maprow">
+      <div id="map"></div>
+      <aside id="props"><p class="muted">Select a feature to edit it.</p></aside>
+    </div>
+    <div id="hint" class="hint"></div>
+  </section>
+
+  <section id="tab-data" class="tab">
+    <div class="card">
+      <div class="row"><h3>Import survey data</h3><span class="spacer"></span>
+        <a href="/api/survey-template.xlsx" download><button type="button">Download Excel template</button></a></div>
+      <form id="importForm" class="row">
+        <input type="file" name="file" accept=".xlsx,.xlsm,.csv,.txt,.kml,.kmz,.gpx" required>
+        <label>Rows are <select name="target">
+          <option value="auto">auto (detect from sheet names / columns)</option><option value="poles">poles</option>
+          <option value="homes">homes / MDUs</option><option value="nodes">equipment</option>
+          <option value="splitters">splitters (Excel/CSV)</option>
+          <option value="cables">cables</option></select></label>
+        <label>Status <select name="status"><option>existing</option><option>proposed</option></select></label>
+        <button type="submit">Import</button>
+      </form>
+      <p class="muted">An Excel workbook can hold several sheets (Poles, Homes, Equipment, Splitters, Cables), all imported in one go.
+        Use the template, or any sheet with named columns (ID, Latitude, Longitude, Type, Height, Viable HP, Kind, Path...).
+        A project's own Project Data Excel export can be uploaded back. Rows without valid coordinates are kept and flagged so you can fix them below.</p>
+      <pre id="importReport" class="report"></pre>
+    </div>
+    <div class="card" id="dataset">
+      <div class="row"><h3>Survey dataset</h3><span class="spacer"></span>
+        <span id="surveyStatus" class="pill"></span>
+        <button id="approveSurvey">Approve survey dataset</button></div>
+      <div id="dataIssues"></div>
+      <div class="row"><select id="dataColl"><option value="poles">Poles</option><option value="homes">Homes / MDUs</option>
+        <option value="nodes">Equipment</option><option value="cables">Cables</option></select>
+        <input id="dataFilter" placeholder="Filter..."></div>
+      <div id="dataTable" class="tablewrap"></div>
+    </div>
+  </section>
+
+  <section id="tab-materials" class="tab">
+    <div class="grid2">
+      <div class="card"><div class="row"><h3>Material catalogue</h3><span class="spacer"></span><button id="resetMaterials">Load company catalogue</button>
+        <label class="filebtn" title="Update rates from a price list or BOQ template (Excel); new items are added">Import price list<input type="file" id="priceFile" accept=".xlsx,.xlsm" hidden></label>
+        <button id="addMaterial">Add item</button></div>
+        <pre id="priceReport" class="report"></pre>
+        <div id="materialsTable" class="tablewrap"></div></div>
+      <div class="card"><div class="row"><h3>Construction rules</h3><span class="spacer"></span><button id="resetRules">Load company rules</button></div>
+        <p class="muted">Defaults are calibrated on the V Squared Infinity Densification FY26 project (see docs/calibration.md).</p>
+        <div id="rulesForm" class="form"></div></div>
+    </div>
+    <div class="card"><div class="row"><h3>Authorised manual adjustments</h3><span class="spacer"></span><button id="addAdj">Add adjustment</button></div>
+      <p class="muted">Adds to (or subtracts from) a calculated BOM quantity. A reason is required for approval.</p>
+      <div id="adjTable" class="tablewrap"></div></div>
+  </section>
+
+  <section id="tab-splicing" class="tab">
+    <div class="card"><div class="row"><h3>Splicing schematic</h3><span class="spacer"></span>
+      <label class="muted">PON <select id="spPon"></select></label></div>
+      <div id="spSchematic" class="splicebox wide"></div></div>
+    <div class="card row">
+      <label>Node <select id="spNode"></select></label>
+      <button id="btnAllocate">Auto-allocate fibres</button>
+      <span class="muted">Feeds every PON from an OLT port and every FAT from a PON splitter output, through the cable network. Manual connections are kept.</span>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Splitters at node</h3><div id="spSplitters"></div>
+        <h3>Splice / connection sheet</h3><div id="spConnections"></div>
+        <h3>Add connection</h3><div id="spAdd" class="form"></div></div>
+      <div class="card"><h3>FAT traces to OLT</h3><div id="spTraces"></div>
+        <h3>Core usage</h3><div id="spCores"></div></div>
+    </div>
+  </section>
+
+  <section id="tab-schedules" class="tab">
+    <div class="card"><h3>Cable lengths</h3><div id="schCables" class="tablewrap"></div></div>
+    <div class="card"><h3>Pole summary</h3><div id="schPoles" class="tablewrap"></div></div>
+    <div class="grid2">
+      <div class="card"><h3>BOM</h3><div id="schBom" class="tablewrap"></div></div>
+      <div class="card"><h3>BOQ</h3><div id="schBoq" class="tablewrap"></div></div>
+    </div>
+  </section>
+
+  <section id="tab-report" class="tab">
+    <div class="grid2">
+      <div class="card"><h3>Project and report text</h3><div id="infoForm" class="form"></div>
+        <p class="muted">Report sections use only this text and the recorded design data. Empty sections are printed as "Not recorded".</p></div>
+      <div class="card"><h3>Survey photographs</h3>
+        <form id="photoForm" class="form">
+          <input type="file" name="file" accept=".jpg,.jpeg,.png" required>
+          <input name="caption" placeholder="Caption">
+          <input name="feature" placeholder="Related feature ID (optional)">
+          <button type="submit">Upload photo</button>
+        </form>
+        <div id="photos" class="photos"></div></div>
+    </div>
+  </section>
+
+  <section id="tab-qa" class="tab">
+    <div class="grid2">
+      <div class="card"><h3>Validation</h3><div id="qaIssues"></div></div>
+      <div class="card"><div class="row"><h3>Review comments</h3><span class="spacer"></span><span id="cmtCount" class="pill"></span></div>
+        <div id="cmtList" class="cmtlist"></div>
+        <div class="form">
+          <textarea id="cmtText" rows="2" placeholder="Comment for the planner or reviewer..."></textarea>
+          <div class="row"><input id="cmtRef" placeholder="Feature ID (optional; the selected feature is used)"><button id="cmtAdd">Add comment</button></div>
+        </div></div>
+      <div class="card"><h3>Approval &amp; revisions</h3>
+        <div class="row"><span>Design status:</span><span id="designStatus" class="pill"></span></div>
+        <div class="form">
+          <input id="revNote" placeholder="Revision note / change record">
+          <div class="row">
+            <button data-rev="">Save revision</button>
+            <button data-rev="in_review">Submit for review</button>
+            <button data-rev="approved" class="ok" {% if not can_approve %}disabled title="You need the 'approve design' permission"{% endif %}>Approve design</button>
+            <button data-rev="draft">Return to draft</button>
+          </div>
+        </div>
+        <div id="revisions" class="tablewrap"></div></div>
+    </div>
+  </section>
+
+  <section id="tab-outputs" class="tab">
+    <div class="card"><div class="row"><h3>Deliverables</h3><span class="spacer"></span>
+      <button id="btnPackage" class="ok">Download complete design package (.zip)</button></div>
+      <p class="muted">Every file is generated from the same design data and stamped with the revision and data hash.
+        "Needs regenerating" means the design changed after that file was last downloaded.
+        LLD is produced as DXF (open in AutoCAD and save as DWG if needed).</p>
+      <div id="outputs"></div></div>
+  </section>
+</main>
+<div id="toast"></div>
+<dialog id="shareDlg" class="sharedlg" aria-labelledby="shareTitle">
+  <div class="shhead"><h3 id="shareTitle">Share project</h3><button type="button" class="aix" data-close aria-label="Close">&times;</button></div>
+  <form id="shareForm" class="shadd" autocomplete="off">
+    <div class="shfind">
+      <input id="shareWho" placeholder="Add people by name, username or email" aria-label="Person to share with">
+      <div id="shareHits" class="shhits" hidden></div>
+    </div>
+    <select id="shareAccess" aria-label="Access"><option value="edit">Can edit</option><option value="view">Can view</option></select>
+    <button type="submit" class="ok">Share</button>
+  </form>
+  <p id="shareNoManage" class="muted" hidden>Only the project owner or a company admin can change who has access.</p>
+  <h4>People with access</h4>
+  <ul id="sharePeople" class="shpeople"></ul>
+  <p id="shareCompany" class="shcompany" hidden></p>
+  <h4>Project link</h4>
+  <div class="shlink"><input id="shareLink" readonly aria-label="Project link"><button type="button" id="shareCopy">Copy link</button></div>
+  <p class="muted">Only people with access can open this link.</p>
+</dialog>
+<dialog id="helpDlg"><h3>Keyboard shortcuts</h3>
+  <table>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Undo / redo (also Ctrl+Shift+Z)</td></tr>
+    <tr><td><kbd>S</kbd> <kbd>P</kbd> <kbd>H</kbd> <kbd>E</kbd> <kbd>C</kbd> <kbd>B</kbd></td><td>Select, + Pole, + Home, + Equipment, Draw cable, Boundary</td></tr>
+    <tr><td><kbd>M</kbd></td><td>Measure distance / area</td></tr>
+    <tr><td><kbd>/</kbd></td><td>Find a feature or go to coordinates</td></tr>
+    <tr><td><kbd>L</kbd> / <kbd>F</kbd></td><td>Labels on/off / fullscreen map</td></tr>
+    <tr><td><kbd>Enter</kbd> / <kbd>Esc</kbd></td><td>Finish / cancel drawing (Esc also clears a measurement and leaves fullscreen)</td></tr>
+    <tr><td><kbd>Del</kbd></td><td>Delete the selected feature</td></tr>
+    <tr><td>Selected cable</td><td>Drag a point to move it (snaps to poles), drag "+" to add a point, right-click a point to remove it</td></tr>
+    <tr><td>LLD drawing</td><td>Scroll to zoom, drag to pan, Window to zoom to a box, Measure, Layers</td></tr>
+  </table>
+  <div class="row"><span class="spacer"></span><button id="helpClose">Close</button></div>
+</dialog>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<aside id="aiPanel" class="aipanel" hidden aria-label="AI assistant">
+  <div class="aihead">
+    <div><b>AI assistant</b><small id="aiModel"></small></div>
+    <button type="button" id="aiWide" class="ailink" title="Make the chat wider (for tables)" aria-pressed="false">Wider</button>
+    <button type="button" id="aiClear" class="ailink" title="Start a new conversation">New chat</button>
+    <button type="button" id="aiClose" class="aix" aria-label="Close">&times;</button>
+  </div>
+  <div id="aiLog" class="ailog" aria-live="polite"></div>
+  <div id="aiChip" class="aichip" hidden>&#128206; <span></span><button type="button" aria-label="Remove the attached file">&times;</button></div>
+  <form id="aiForm" class="aiform">
+    <input type="file" id="aiFile" hidden>
+    <button type="button" id="aiAttach" class="aiattach" title="Attach a photo, spreadsheet or text file" aria-label="Attach a file">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 01-7.8-7.8l8.6-8.6a3.7 3.7 0 015.2 5.2l-8.6 8.6a1.8 1.8 0 01-2.6-2.6l7.9-7.9"/></svg></button>
+    <textarea id="aiInput" rows="2" maxlength="4000" placeholder="Ask about this project, or attach a photo or file…" aria-label="Your question"></textarea>
+    <button id="aiSend" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l18-8-8 18-2-8z"/></svg></button>
+  </form>
+  <p class="ainote">Your question, any attached file and a summary of this project are sent to the AI service. Check answers before acting on them.</p>
+</aside>
+<script src="{% static 'planner/app.js' %}"></script>
+<script src="{% static 'planner/overview.js' %}"></script>
+<script src="{% static 'planner/tools.js' %}"></script>
+<script src="{% static 'planner/assistant.js' %}"></script>
+<script src="{% static 'planner/share.js' %}"></script>
+</body>
+</html>

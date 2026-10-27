@@ -1,0 +1,43 @@
+{% extends "registration/auth_base.html" %}
+{% load static %}
+{% block title %}Forgot password{% endblock %}
+{% block card %}
+      <div class="card">
+        <div class="logo"><img src="{% static 'planner/img/archplanner-logo.png' %}" alt="ArchPlanner"></div>
+        {% if sent %}
+        <h1>Request sent</h1>
+        <div class="notice" role="status">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12l4 4 10-10"/></svg>
+          <div>If an account matches what you entered, your administrator has been notified and will contact you with a new password.</div>
+        </div>
+        <a class="submit linkbtn" href="{% url 'login' %}">Back to sign in</a>
+        {% else %}
+        <h1>Forgot your password?</h1>
+        <p class="sub">Enter your username or email. Your administrator will be notified and will set a new password for you.</p>
+        {% if error %}
+        <div class="alert" role="alert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 7v6M12 17h.01"/></svg>
+          <div>{{ error }}</div>
+        </div>
+        {% endif %}
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <div class="field">
+            <label for="id_identifier">Username or email</label>
+            <div class="control">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+              <input id="id_identifier" name="identifier" maxlength="150" autofocus autocomplete="username" autocapitalize="none"
+                     spellcheck="false" required placeholder="Your username or email" value="{{ identifier }}">
+            </div>
+          </div>
+          <div class="field">
+            <label for="id_note">Message for the administrator <span class="opt">(optional)</span></label>
+            <textarea id="id_note" name="note" maxlength="500" rows="3" placeholder="e.g. the phone number to reach you on">{{ note }}</textarea>
+          </div>
+          <button type="submit" class="submit">Notify administrator</button>
+        </form>
+        <div class="divider"></div>
+        <p class="help"><a href="{% url 'login' %}">Back to sign in</a></p>
+        {% endif %}
+      </div>
+{% endblock %}

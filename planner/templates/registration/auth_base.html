@@ -1,0 +1,40 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{% block title %}Sign in{% endblock %} · ArchPlanner</title>
+<link rel="icon" type="image/png" href="{% static 'planner/img/favicon.png' %}">
+<link rel="stylesheet" href="{% static 'planner/login.css' %}?v=10">
+<script src="{% static 'planner/login.js' %}" defer></script>
+</head>
+<body>
+<div class="stage">
+<div class="auth">
+  <section class="art" aria-label="ArchPlanner" style="background-image: url('{% static 'planner/img/login-network.webp' %}')">
+    <div class="brand">
+      <img class="brandlogo" src="{% static 'planner/img/archplanner-logo-light.png' %}" alt="ArchPlanner" width="720" height="447">
+    </div>
+    <div class="copy">
+      <span class="eyebrow">Network planning &amp; design</span>
+      <h2>From ground survey to an <em>approved design</em> package.</h2>
+      <p class="lead">Plan, design and approve fibre networks in one place. Every drawing, schedule and report comes from the same project data.</p>
+    </div>
+  </section>
+
+  <main class="panel">
+    <div class="inner">
+{% block card %}{% endblock %}
+      <div class="trust" aria-label="Security">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M5 12l4 4 10-10"/></svg>Role-based access</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M5 12l4 4 10-10"/></svg>Approval &amp; revision history</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M5 12l4 4 10-10"/></svg>Sign-in attempts limited</span>
+      </div>
+    </div>
+    <div class="foot">© {% now "Y" %} ArchPlanner · Network planning &amp; design</div>
+  </main>
+</div>
+</div>
+</body>
+</html>

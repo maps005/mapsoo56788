@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="610 236 540 512" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <title>ArchPlanner</title>
+  <path d="M727 437V620H868M970 620H1111V437" stroke="#4f86ff" stroke-width="38"/>
+  <path d="M727 437L918 268L1111 437" stroke="#ffffff" stroke-width="40"/>
+  <path d="M820 446Q918 362 1016 446" stroke="#ffb703" stroke-width="22"/>
+  <path d="M864 490Q918 444 974 490" stroke="#2bd67f" stroke-width="22"/>
+  <path d="M918 572V668Q918 722 864 722H642" stroke="#ff7a3d" stroke-width="24"/>
+  <circle cx="918" cy="544" r="34" fill="#ff7a3d"/>
+</svg>

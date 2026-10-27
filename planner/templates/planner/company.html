@@ -1,0 +1,81 @@
+{% extends "planner/base.html" %}
+{% block title %}Company{% endblock %}
+{% block content %}
+<div class="phead"><h1>Company</h1><span class="spacer"></span>
+  {% if memberships %}<form method="get" class="inline"><select name="c" aria-label="Company">
+    {% for m in memberships %}<option value="{{ m.company_id }}" {% if c and m.company_id == c.id %}selected{% endif %}>{{ m.company.name }} ({{ m.role }})</option>{% endfor %}
+  </select><button>Go</button></form>{% endif %}
+  <a class="btn" href="?new=1">+ New company</a>
+</div>
+
+{% if creating %}
+<div class="card narrow">
+  <h2>Set up a company</h2>
+  <p class="muted">The company's members share its projects. You become the owner and can add colleagues as planners, approvers or viewers.</p>
+  <form method="post" enctype="multipart/form-data" class="form pform">{% csrf_token %}
+    <input type="hidden" name="action" value="create">
+    {{ form.as_div }}
+    <button class="ok" type="submit">Create company</button>
+  </form>
+</div>
+{% else %}
+<div class="cohead card">
+  {% if c.logo %}<img src="{% url 'company_logo' c.id %}" alt="{{ c.name }} logo">{% else %}<div class="nologo">{{ c.name|slice:":2"|upper }}</div>{% endif %}
+  <div><h2>{{ c.name }}</h2><div class="muted">{{ c.legal_name }}{% if c.registration_no %} · Reg. {{ c.registration_no }}{% endif %}{% if c.tax_pin %} · PIN {{ c.tax_pin }}{% endif %}</div>
+    <div class="muted">{{ c.address|linebreaksbr }}</div>
+    <div class="muted">{% if c.phone %}{{ c.phone }}{% endif %}{% if c.email %} · {{ c.email }}{% endif %}{% if c.website %} · {{ c.website }}{% endif %}</div></div>
+  <span class="spacer"></span>
+  <div class="kpis small"><div><b>{{ stats.total }}</b><span>projects</span></div><div><b>{{ stats.in_review }}</b><span>in review</span></div>
+    <div><b>{{ stats.approved }}</b><span>approved</span></div><div><b>{{ members|length }}</b><span>members</span></div></div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h3>Members &amp; roles</h3>
+    <p class="muted">Viewer: see and comment · Planner: create and edit · Approver: also approve designs · Admin / Owner: also manage the company, members and projects.</p>
+    <table class="ptable">
+      <tr><th>User</th><th>Role</th><th></th></tr>
+      {% for mm in members %}
+      <tr><td><b>{{ mm.user.get_full_name|default:mm.user.username }}</b><div class="muted">{{ mm.user.username }}{% if mm.user.email %} · {{ mm.user.email }}{% endif %}</div></td>
+        <td>{% if can_admin %}<form method="post" class="inline">{% csrf_token %}<input type="hidden" name="c" value="{{ c.id }}"><input type="hidden" name="membership" value="{{ mm.id }}">
+          <select name="role">{% for r, t in roles %}<option value="{{ r }}" {% if mm.role == r %}selected{% endif %}>{{ t }}</option>{% endfor %}</select>
+          <button class="sm" name="action" value="role">Save</button></form>{% else %}{{ mm.get_role_display }}{% endif %}</td>
+        <td>{% if can_admin %}<form method="post" class="inline">{% csrf_token %}<input type="hidden" name="c" value="{{ c.id }}"><input type="hidden" name="membership" value="{{ mm.id }}">
+          <button class="sm danger" name="action" value="remove">Remove</button></form>{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+    {% if can_admin %}
+    <form method="post" class="row addm">{% csrf_token %}<input type="hidden" name="c" value="{{ c.id }}"><input type="hidden" name="action" value="add_member">
+      <input name="user" placeholder="Username or email of an existing account" required>
+      <select name="role">{% for r, t in roles %}<option value="{{ r }}" {% if r == 'planner' %}selected{% endif %}>{{ t }}</option>{% endfor %}</select>
+      <button class="ok">Add member</button></form>
+    <p class="muted">New accounts are created by the system administrator (Admin &gt; Users); then add them here.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Company details &amp; logo</h3>
+    {% if form %}
+    <form method="post" enctype="multipart/form-data" class="form pform">{% csrf_token %}
+      <input type="hidden" name="c" value="{{ c.id }}"><input type="hidden" name="action" value="details">
+      {{ form.as_div }}
+      <button class="ok" type="submit">Save details</button>
+    </form>
+    {% else %}<p class="muted">Only company admins and owners can change the details.</p>{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="row"><h3>Company projects</h3><span class="spacer"></span>
+    {% if can_admin and personal %}<form method="post" class="inline">{% csrf_token %}<input type="hidden" name="c" value="{{ c.id }}">
+      <button name="action" value="adopt">Add my {{ personal }} personal project{{ personal|pluralize }} to {{ c.name }}</button></form>{% endif %}
+    <a class="btn" href="{% url 'projects_page' %}?company={{ c.id }}">All company projects</a></div>
+  <table class="ptable">
+    <tr><th>Project</th><th>Owner</th><th>Status</th><th>Updated</th></tr>
+    {% for r in projects %}<tr><td><a href="/?project={{ r.p.id }}">{{ r.p.name }}</a></td><td>{{ r.p.owner.username }}</td>
+      <td>{{ r.design_label }}</td><td>{{ r.p.updated|date:"Y-m-d H:i" }}</td></tr>
+    {% empty %}<tr><td colspan="4" class="muted">No projects yet. New projects you create go to your active company (Profile).</td></tr>{% endfor %}
+  </table>
+</div>
+{% endif %}
+{% endblock %}

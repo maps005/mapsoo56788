@@ -1,0 +1,41 @@
+{% extends "planner/base.html" %}
+{% block title %}Projects{% endblock %}
+{% block content %}
+<div class="phead"><h1>Projects</h1><span class="spacer"></span><a class="btn ok" href="/">Open the planner</a></div>
+<form method="get" class="filters card">
+  <input name="q" value="{{ q }}" placeholder="Search name or owner">
+  <select name="company"><option value="">All companies</option><option value="personal" {% if f_company == 'personal' %}selected{% endif %}>Personal projects</option>
+    {% for c in companies %}<option value="{{ c.id }}" {% if f_company == c.id|stringformat:'s' %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+  <select name="status"><option value="">Any status</option>
+    <option value="draft" {% if f_status == 'draft' %}selected{% endif %}>Draft</option>
+    <option value="in_review" {% if f_status == 'in_review' %}selected{% endif %}>In review</option>
+    <option value="approved" {% if f_status == 'approved' %}selected{% endif %}>Approved</option></select>
+  <button type="submit">Filter</button>
+</form>
+<div class="card tablewrap">
+<table class="ptable">
+  <tr><th>Project</th><th>Company</th><th>Owner</th><th>Design</th><th>Survey</th><th class="num">Rev</th><th class="num">Open comments</th><th>Updated</th><th></th></tr>
+  {% for r in rows %}
+  <tr>
+    <td><a href="/?project={{ r.p.id }}"><b>{{ r.p.name }}</b></a></td>
+    <td>{{ r.p.company|default:"Personal" }}</td>
+    <td>{{ r.p.owner.get_full_name|default:r.p.owner.username }}</td>
+    <td><span class="badge {{ r.design }}">{{ r.design_label }}</span></td>
+    <td><span class="badge {{ r.survey }}">{{ r.survey|capfirst }}</span></td>
+    <td class="num">{{ r.revision }}</td>
+    <td class="num">{% if r.p.open_comments %}<a href="{% url 'review_page' %}?show=comments">{{ r.p.open_comments }}</a>{% else %}-{% endif %}</td>
+    <td>{{ r.p.updated|date:"Y-m-d H:i" }}</td>
+    <td class="acts">
+      <a class="btn sm" href="/?project={{ r.p.id }}">Open</a>
+      {% if r.can_manage and admin_of %}
+      <form method="post" class="inline">{% csrf_token %}<input type="hidden" name="project" value="{{ r.p.id }}">
+        <select name="company" title="Move to company"><option value="">Personal</option>
+          {% for c in admin_of %}<option value="{{ c.id }}" {% if r.p.company_id == c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+        <button class="sm" type="submit">Move</button></form>
+      {% endif %}
+    </td>
+  </tr>
+  {% empty %}<tr><td colspan="9" class="muted">No projects match.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

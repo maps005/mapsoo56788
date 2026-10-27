@@ -1,0 +1,60 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'planner/gantt.css' %}">{% endblock %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> › <a href="{% url 'admin:planner_project_changelist' %}">Projects</a> › Gantt chart</div>{% endblock %}
+{% block content %}
+<div id="content-main" class="gantt-page">
+  <form method="get" class="gantt-filter">
+    <label>Company <select name="company"><option value="">All companies</option>
+      {% for c in companies %}<option value="{{ c.id }}" {% if company == c.id|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
+    <label>Assigned to <select name="assigned"><option value="">Anyone</option>
+      <option value="none" {% if assigned == "none" %}selected{% endif %}>Not assigned</option>
+      {% for u in people %}<option value="{{ u.id }}" {% if assigned == u.id|stringformat:"s" %}selected{% endif %}>{{ u.get_full_name|default:u.username }}</option>{% endfor %}</select></label>
+    <label>Show <select name="show"><option value="open" {% if show == "open" %}selected{% endif %}>Open projects</option>
+      <option value="all" {% if show == "all" %}selected{% endif %}>All projects</option></select></label>
+    <button type="submit" class="button">Apply</button>
+    <span class="gantt-summary">{{ chart.rows|length }} project{{ chart.rows|length|pluralize }}{% if late %} · <b class="late">{{ late }} late</b>{% endif %}
+      · {{ chart.start|date:"j M Y" }} – {{ chart.end|date:"j M Y" }}</span>
+  </form>
+
+  <div class="gantt-legend">
+    <span><i class="seg planned"></i>Planned (start → due)</span>
+    {% for k, label in chart.phases %}<span><i class="seg {{ k }}"></i>{{ label }}</span>{% endfor %}
+    <span><i class="mark"></i>Design approved</span>
+    <span><i class="todayline"></i>Today</span>
+  </div>
+
+  {% if chart.rows %}
+  <div class="gantt">
+    <div class="g-head">
+      <div class="g-name">Project</div>
+      <div class="g-track g-axis">
+        {% for t in chart.ticks %}<span class="tick" style="left: {{ t.left }}%">{{ t.label }}</span>{% endfor %}
+      </div>
+    </div>
+    {% for r in chart.rows %}
+    <div class="g-row{% if r.late %} is-late{% endif %}">
+      <div class="g-name">
+        <a href="{% url 'admin:planner_project_change' r.project.pk %}">{{ r.project.name }}</a>
+        <small>{{ r.project.company|default:"No company" }} · {% if r.project.assigned_to %}<span class="who">{{ r.project.assigned_to.get_full_name|default:r.project.assigned_to.username }}</span>{% else %}<span class="who none">unassigned</span>{% endif %} · <span class="st st-{{ r.status }}">{{ r.status_label }}</span>
+          {% if r.project.due_date %} · due {{ r.project.due_date|date:"j M" }}{% endif %}{% if r.late %} · <b class="late">late</b>{% endif %}</small>
+      </div>
+      <div class="g-track">
+        {% for t in chart.ticks %}<span class="grid" style="left: {{ t.left }}%"></span>{% endfor %}
+        {% if r.planned %}<span class="seg planned" style="left: {{ r.planned.left }}%; width: {{ r.planned.width }}%"
+          title="Planned {{ r.planned.start|date:'j M Y' }} – {{ r.planned.end|date:'j M Y' }}"></span>{% endif %}
+        {% for s in r.segments %}<span class="seg {{ s.kind }}" style="left: {{ s.left }}%; width: {{ s.width }}%"
+          title="{{ s.label }}: {{ s.start|date:'j M Y' }} – {{ s.end|date:'j M Y' }}"></span>{% endfor %}
+        {% if r.marker_left is not None %}<span class="mark" style="left: {{ r.marker_left }}%" title="Design approved {{ r.approved_on|date:'j M Y' }}"></span>{% endif %}
+        <span class="todayline" style="left: {{ chart.today_left }}%"></span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="help">Phases come from the app: Survey runs from project creation to survey approval, Design to the first
+    review request, Review to design approval. Set planned start and due dates on each project to see the plan and late projects.</p>
+  {% else %}
+  <p>No projects match.</p>
+  {% endif %}
+</div>
+{% endblock %}

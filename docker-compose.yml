@@ -1,0 +1,57 @@
+# Production stack: FTTH Planner + PostgreSQL + Caddy (automatic HTTPS).
+# Usage on the server:  ./deploy/make-env.sh  then  docker compose up -d --build
+# If the server already runs nginx/Apache on ports 80/443, start without Caddy:
+#   docker compose up -d --build web db     (and see deploy/nginx-ftth.conf)
+services:
+  db:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ftth}
+      POSTGRES_USER: ${POSTGRES_USER:-ftth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run deploy/make-env.sh first}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ftth}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ftth}
+      FTTH_DATA_DIR: /data
+      DJANGO_DEBUG: "false"
+    volumes:
+      - media:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    # reachable from the host only (for an existing nginx); Caddy talks to it on the internal network
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?run deploy/make-env.sh first}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  pgdata:
+  media:
+  caddy_data:
+  caddy_config:

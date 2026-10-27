@@ -1,0 +1,73 @@
+{% extends "planner/base.html" %}
+{% load humanize %}
+{% block title %}Review{% endblock %}
+{% block content %}
+<div class="phead"><h1>Review &amp; approval</h1><span class="spacer"></span>
+  <nav class="seg">
+    <a href="?show=queue" {% if show == 'queue' %}class="on"{% endif %}>Waiting for my approval</a>
+    <a href="?show=comments" {% if show == 'comments' %}class="on"{% endif %}>Open comments</a>
+    <a href="?show=approved" {% if show == 'approved' %}class="on"{% endif %}>Approved</a>
+    <a href="?show=all" {% if show == 'all' %}class="on"{% endif %}>All</a>
+  </nav>
+</div>
+{% for k in cards %}
+<section class="card rcard">
+  <div class="rhead">
+    <div><h2><a href="/?project={{ k.p.id }}">{{ k.p.name }}</a></h2>
+      <div class="muted">{{ k.p.company|default:"Personal" }} · owner {{ k.p.owner.get_full_name|default:k.p.owner.username }} · updated {{ k.p.updated|date:"Y-m-d H:i" }}
+        {% if k.last %}· rev {{ k.last.version }} by {{ k.last.author.username|default:"-" }}: “{{ k.last.note }}”{% endif %}</div></div>
+    <span class="spacer"></span>
+    <span class="badge {{ k.design }}">{{ k.design_label }}</span>
+    <span class="badge {{ k.survey }}">Survey {{ k.survey }}</span>
+  </div>
+  <div class="kpis">
+    <div><b>{{ k.s.homepasses|intcomma }}</b><span>homepasses</span></div>
+    <div><b>{{ k.s.nodes.FAT }}</b><span>FATs</span></div>
+    <div><b>{{ k.s.poles_new }}</b><span>new poles</span></div>
+    {% for key, m in k.s.cable_m.items %}<div><b>{{ m|floatformat:0|intcomma }} m</b><span>{{ key }}</span></div>{% endfor %}
+    <div><b>{{ k.s.currency }} {{ k.s.boq_total|floatformat:0|intcomma }}</b><span>BOQ</span></div>
+    <div class="{% if k.counts.errors %}bad{% endif %}"><b>{{ k.counts.errors }} / {{ k.counts.warnings }}</b><span>errors / warnings</span></div>
+  </div>
+  {% if k.unpriced %}<p class="warnline">BOQ items without a rate: {{ k.unpriced|join:", " }} - approval is blocked until they are priced.</p>{% endif %}
+  <div class="rgrid">
+    <div>
+      <h3>Comments {% if k.open %}<span class="count">{{ k.open }} open</span>{% endif %}</h3>
+      <div class="comments">
+        {% for c in k.comments %}
+        <div class="cmt {% if c.resolved %}done{% endif %}">
+          <div class="cmeta"><b>{{ c.author.get_full_name|default:c.author.username|default:"-" }}</b> · {{ c.created|date:"Y-m-d H:i" }}{% if c.revision %} · rev {{ c.revision }}{% endif %}{% if c.ref %} · <a href="/?project={{ k.p.id }}&amp;feature={{ c.ref|urlencode }}">{{ c.ref }}</a>{% endif %}
+            {% if c.resolved %}<span class="badge approved">resolved by {{ c.resolved_by.username }}</span>{% endif %}</div>
+          <div>{{ c.text|linebreaksbr }}</div>
+          {% if k.can_edit or c.author_id == user.id %}
+          <form method="post" class="inline">{% csrf_token %}<input type="hidden" name="project" value="{{ k.p.id }}"><input type="hidden" name="comment" value="{{ c.id }}">
+            <button class="sm" name="action" value="{% if c.resolved %}reopen{% else %}resolve{% endif %}">{% if c.resolved %}Reopen{% else %}Mark resolved{% endif %}</button></form>
+          {% endif %}
+        </div>
+        {% empty %}<p class="muted">No comments yet.</p>{% endfor %}
+      </div>
+      <form method="post" class="cform">{% csrf_token %}<input type="hidden" name="project" value="{{ k.p.id }}">
+        <textarea name="text" rows="2" placeholder="Leave a comment for the planner..." required></textarea>
+        <div class="row"><input name="ref" placeholder="Feature ID (optional, e.g. KPC 06, FAT-03)"><button name="action" value="comment">Comment</button></div>
+      </form>
+    </div>
+    <div class="ractions">
+      <h3>Decision</h3>
+      <a class="btn" href="/?project={{ k.p.id }}">{% if k.can_edit %}Open &amp; correct in the planner{% else %}Open in the planner (view only){% endif %}</a>
+      <a class="btn" href="/api/projects/{{ k.p.id }}/export/qa.pdf">QA report (PDF)</a>
+      <a class="btn" href="/api/projects/{{ k.p.id }}/export/boq.xlsx">BOQ (Excel)</a>
+      {% if k.can_approve %}
+      <form method="post">{% csrf_token %}<input type="hidden" name="project" value="{{ k.p.id }}">
+        <textarea name="text" rows="2" placeholder="Approval note or reason for returning (optional)"></textarea>
+        <div class="row">
+          <button class="ok" name="action" value="approve" {% if k.counts.errors or k.unpriced %}disabled title="Fix errors and price every BOQ item first"{% endif %}>Approve design</button>
+          <button class="danger" name="action" value="return">Return to planner</button>
+        </div>
+      </form>
+      {% else %}<p class="muted">You can comment; approving needs the approver role in {{ k.p.company|default:"this project's company" }}.</p>{% endif %}
+    </div>
+  </div>
+</section>
+{% empty %}
+<div class="card empty">{% if show == 'queue' %}Nothing is waiting for your approval. Planners send a design here with <b>Submit for review</b> in the QA &amp; approval tab.{% else %}Nothing to show.{% endif %}</div>
+{% endfor %}
+{% endblock %}

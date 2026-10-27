@@ -1,0 +1,31 @@
+/* Admin Gantt chart */
+.gantt-filter { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0 0 12px; }
+.gantt-filter label { font-weight: 600; } .gantt-filter select { margin-left: 4px; }
+.gantt-summary { color: var(--body-quiet-color); } .late { color: #c62828; }
+.gantt-legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 10px; font-size: 12px; color: var(--body-quiet-color); }
+.gantt-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.gantt-legend .seg { position: static; display: inline-block; width: 22px; height: 10px; }
+.gantt-legend .mark { position: static; display: inline-block; transform: rotate(45deg); }
+.gantt-legend .todayline { position: static; display: inline-block; width: 2px; height: 14px; }
+.gantt { border: 1px solid var(--hairline-color); border-radius: 8px; overflow: hidden; background: var(--body-bg); }
+.g-head, .g-row { display: grid; grid-template-columns: minmax(200px, 26%) 1fr; }
+.g-head { background: var(--darkened-bg); font-weight: 600; font-size: 12px; border-bottom: 1px solid var(--hairline-color); }
+.g-row { border-bottom: 1px solid var(--hairline-color); } .g-row:last-child { border-bottom: 0; }
+.g-row:hover { background: var(--selected-row); } .g-row.is-late .g-name a { color: #c62828; }
+.g-name { padding: 8px 12px; border-right: 1px solid var(--hairline-color); min-width: 0; }
+.g-name a { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-name small { color: var(--body-quiet-color); }
+.g-track { position: relative; min-height: 44px; overflow: hidden; }
+.g-axis { min-height: 30px; }
+.tick { position: absolute; top: 8px; transform: translateX(-50%); white-space: nowrap; font-size: 11px; color: var(--body-quiet-color); }
+.grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--hairline-color); }
+.seg { position: absolute; top: 17px; height: 12px; border-radius: 3px; }
+.seg.planned { top: 9px; height: 28px; background: rgba(21,87,176,.08); border: 1.5px dashed #1557b0; border-radius: 5px; }
+.seg.survey { background: #2d6aa3; } .seg.design { background: #d4a437; } .seg.review { background: #e07a1f; }
+.mark { position: absolute; top: 17px; width: 12px; height: 12px; margin-left: -6px; background: #2e7d32; transform: rotate(45deg);
+  border: 2px solid #fff; box-shadow: 0 0 0 1px #2e7d32; }
+.todayline { position: absolute; top: 0; bottom: 0; width: 2px; background: #c62828; opacity: .7; }
+.st { font-weight: 600; } .st-approved { color: #2e7d32; } .st-in_review { color: #e07a1f; } .st-draft { color: var(--body-quiet-color); }
+.gantt-page .help { margin-top: 10px; color: var(--body-quiet-color); font-size: 12px; }
+.gantt-legend .seg.planned { height: 10px; border-radius: 3px; }
+.who { font-weight: 600; color: var(--body-fg); } .who.none { font-weight: 400; font-style: italic; color: var(--body-quiet-color); }

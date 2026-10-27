@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="540 236 690 690" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <title>ArchPlanner</title>
+  <path d="M727 437V620H868M970 620H1111V437" stroke="#2050d8" stroke-width="38"/>
+  <path d="M727 437L918 268L1111 437" stroke="#0c1f3c" stroke-width="40"/>
+  <path d="M820 446Q918 362 1016 446" stroke="#ffb703" stroke-width="22"/>
+  <path d="M864 490Q918 444 974 490" stroke="#2bb673" stroke-width="22"/>
+  <path d="M918 572V668Q918 722 864 722H642" stroke="#ff6b2c" stroke-width="24"/>
+  <circle cx="918" cy="544" r="34" fill="#ff6b2c"/>
+  <text x="885" y="895" text-anchor="middle" font-family="Inter, 'Segoe UI', Roboto, Arial, sans-serif" font-size="112" letter-spacing="-1">
+    <tspan font-weight="800" fill="#0c1f3c">FTTH</tspan><tspan dx="26" font-weight="400" fill="#2050d8">Planner</tspan></text>
+</svg>

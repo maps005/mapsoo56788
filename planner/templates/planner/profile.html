@@ -1,0 +1,35 @@
+{% extends "planner/base.html" %}
+{% block title %}Profile{% endblock %}
+{% block content %}
+<div class="phead"><h1>My profile</h1></div>
+<div class="grid2">
+  <div class="card">
+    <h3>Details</h3>
+    <form method="post" class="form pform">{% csrf_token %}
+      <input type="hidden" name="action" value="profile">
+      <label>Username<input value="{{ user.username }}" disabled></label>
+      {{ form.as_div }}
+      <button class="ok" type="submit">Save profile</button>
+    </form>
+  </div>
+  <div>
+    <div class="card">
+      <h3>My companies</h3>
+      <table class="ptable"><tr><th>Company</th><th>Role</th><th></th></tr>
+        {% for m in memberships %}<tr><td>{{ m.company.name }}{% if prof.active_company_id == m.company_id %} <span class="badge approved">active</span>{% endif %}</td>
+          <td>{{ m.get_role_display }}</td><td><a class="btn sm" href="{% url 'company_page' %}?c={{ m.company_id }}">Open</a></td></tr>
+        {% empty %}<tr><td colspan="3" class="muted">Not a member of a company yet. <a href="{% url 'company_page' %}?new=1">Set one up</a> or ask a company admin to add you.</td></tr>{% endfor %}
+      </table>
+      <p class="muted">You own {{ owned }} project{{ owned|pluralize }}.{% if perms.planner.approve_design %} You can approve designs in every company.{% endif %}</p>
+    </div>
+    <div class="card">
+      <h3>Change password</h3>
+      <form method="post" class="form pform">{% csrf_token %}
+        <input type="hidden" name="action" value="password">
+        {{ pw.as_div }}
+        <button type="submit">Change password</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

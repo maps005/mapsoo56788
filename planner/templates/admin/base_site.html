@@ -1,0 +1,24 @@
+{% extends "admin/base.html" %}
+{% load static planner_admin %}
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ brand.name }} admin{% endblock %}
+{% block extrastyle %}{{ block.super }}<link rel="icon" href="{{ brand.icon }}"><link rel="stylesheet" href="{% static 'planner/admin-theme.css' %}">{% endblock %}
+{% block branding %}
+<div id="site-name"><a href="{% url 'admin:index' %}">
+  {% if brand.is_company %}{% if brand.logo %}<span class="cochip"><img src="{{ brand.logo }}" alt="" height="26"></span>{% endif %}
+  <span>{{ brand.name|upper }}</span>{% else %}<img src="{% static 'planner/img/archplanner-mark-light.png' %}" alt="" width="30" height="30">
+  <span>ARCHPLANNER</span>{% endif %} <small>administration</small></a></div>
+{% if user.is_anonymous %}{% include "admin/color_theme_toggle.html" %}{% endif %}
+{% endblock %}
+{% block userlinks %}<a href="/">Planner</a> / <a href="/projects/">Projects</a> / <a href="/review/">Review</a> / <a href="/company/">Company</a> / <a href="/profile/">Profile</a> / {{ block.super }}{% endblock %}
+{% block nav-global %}{% endblock %}
+{% block messages %}
+{% open_reset_requests as resets %}
+{% if resets %}
+<div class="ap-notice" role="status">
+  <strong>{{ resets|length }}{% if resets|length == 6 %}+{% endif %} password reset request{{ resets|length|pluralize }} waiting.</strong>
+  {% for r in resets %}<a href="{% url 'admin:auth_user_password_change' r.user_id %}">{{ r.user.get_username }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+  · <a href="{% url 'admin:planner_passwordresetrequest_changelist' %}?resolved__exact=0">Review requests</a>
+</div>
+{% endif %}
+{{ block.super }}
+{% endblock %}

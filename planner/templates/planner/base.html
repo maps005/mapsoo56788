@@ -1,0 +1,31 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ brand.name }}{% endblock %} · {{ brand.name }}</title>
+<link rel="icon" href="{{ brand.icon }}">
+<link rel="stylesheet" href="{% static 'planner/style.css' %}">
+<link rel="stylesheet" href="{% static 'planner/pages.css' %}">
+</head>
+<body class="pages">
+<header class="pagehead">
+  <a class="brandbox" href="/" title="{{ brand.name }}">{% include "planner/_brand.html" %}</a>
+  <nav class="pnav">
+    <a href="/" {% if nav == 'planner' %}class="on"{% endif %}>Planner</a>
+    <a href="{% url 'projects_page' %}" {% if nav == 'projects' %}class="on"{% endif %}>Projects</a>
+    <a href="{% url 'review_page' %}" {% if nav == 'review' %}class="on"{% endif %}>Review{% if review_count %} <b class="count">{{ review_count }}</b>{% endif %}</a>
+    <a href="{% url 'company_page' %}" {% if nav == 'company' %}class="on"{% endif %}>Company</a>
+    <a href="{% url 'profile_page' %}" {% if nav == 'profile' %}class="on"{% endif %}>Profile</a>
+    {% if user.is_staff %}<a href="{% url 'admin:index' %}">Admin</a>{% endif %}
+  </nav>
+  <span class="spacer"></span>
+  <span class="user">{{ user.get_full_name|default:user.username }}</span>
+  <form method="post" action="{% url 'logout' %}" class="inline">{% csrf_token %}<button type="submit">Sign out</button></form>
+</header>
+<main class="pagebody">
+  {% if messages %}<div class="msgs">{% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

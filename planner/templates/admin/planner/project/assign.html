@@ -1,0 +1,26 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> › <a href="{% url 'admin:planner_project_changelist' %}">Projects</a> › Assign projects</div>{% endblock %}
+{% block content %}
+<div id="content-main">
+  <p>Assign {{ projects|length }} project{{ projects|length|pluralize }}. Fields left empty keep each project's current value.</p>
+  <ul>{% for p in projects %}<li><b>{{ p.name }}</b> <span class="quiet">— {{ p.company|default:"no company" }}{% if p.assigned_to %}, now assigned to {{ p.assigned_to }}{% endif %}</span></li>{% endfor %}</ul>
+  <form method="post">{% csrf_token %}
+    {% for p in projects %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ p.pk }}">{% endfor %}
+    <input type="hidden" name="action" value="assign_projects">
+    {% if form.non_field_errors %}<p class="errornote">{{ form.non_field_errors|join:" " }}</p>{% endif %}
+    <fieldset class="module aligned">
+      {% for f in form %}
+      <div class="form-row{% if f.errors %} errors{% endif %}">
+        {{ f.errors }}
+        <div class="flex-container">{{ f.label_tag }} {{ f }}</div>
+        {% if f.help_text %}<div class="help">{{ f.help_text }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </fieldset>
+    <div class="submit-row">
+      <input type="submit" name="apply" value="Assign" class="default">
+      <a href="{% url 'admin:planner_project_changelist' %}" class="button cancel-link">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

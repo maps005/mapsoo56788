@@ -1,0 +1,37 @@
+/* Django admin in the ArchPlanner colours: brand header in every theme, light colours only in light mode */
+:root {
+  --primary: #13406e; --secondary: #1d5a94; --accent: #39d0ff; --primary-fg: #fff;
+  --header-color: #dbe7f5; --header-branding-color: #fff; --header-bg: #0b2a4a; --header-link-color: #fff;
+  --breadcrumbs-fg: #c9d8ea; --breadcrumbs-link-fg: #fff; --breadcrumbs-bg: #13406e;
+  --button-bg: #13406e; --button-hover-bg: #1d5a94; --default-button-bg: #1d5a94; --default-button-hover-bg: #13406e;
+  --object-tools-bg: #1d5a94; --object-tools-hover-bg: #13406e;
+}
+html[data-theme="light"] {
+  --link-fg: #13406e; --link-hover-color: #1d5a94; --link-selected-fg: #0b2a4a;
+  --selected-bg: #e8eef6; --selected-row: #f3f8fe; --body-bg: #f4f6f9; --darkened-bg: #eef2f7; --hairline-color: #d9dee5;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --link-fg: #13406e; --link-hover-color: #1d5a94; --link-selected-fg: #0b2a4a;
+    --selected-bg: #e8eef6; --selected-row: #f3f8fe; --body-bg: #f4f6f9; --darkened-bg: #eef2f7; --hairline-color: #d9dee5;
+  }
+}
+html[data-theme="dark"] { --link-fg: #8fc1ff; --link-hover-color: #b9d7ff; --link-selected-fg: #d6e8ff; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --link-fg: #8fc1ff; --link-hover-color: #b9d7ff; --link-selected-fg: #d6e8ff; }
+}
+#header { background: linear-gradient(90deg, #0b2a4a 0%, #13406e 55%, #1d5a94 100%); border-bottom: 3px solid #0a223c; padding: 12px 30px; }
+#site-name a { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: .5px; font-size: 18px; }
+#site-name small { font-weight: 400; opacity: .75; font-size: 13px; letter-spacing: 0; }
+div.breadcrumbs { background: #13406e; }
+.module h2, .module caption, .inline-group h2 { background: linear-gradient(90deg, #13406e, #1d5a94); color: #fff; }
+.button, input[type=submit], input[type=button], .submit-row input, a.button { border-radius: 6px; }
+#nav-sidebar .current-model { background: var(--selected-bg); }
+
+/* 'forgot password' notifications */
+.ap-notice { margin: 12px 40px 0; padding: 10px 14px; border-radius: 8px; font-size: 13px;
+  background: #fff6e0; border: 1px solid #f0c96a; color: #6b4a00; }
+.ap-notice a { color: #0d3f85; font-weight: 600; }
+
+#site-name .cochip { display: inline-flex; align-items: center; padding: 2px 6px; border-radius: 6px; background: #fff; margin-right: 6px; vertical-align: middle; }
+#site-name .cochip img { max-height: 26px; max-width: 110px; width: auto; }

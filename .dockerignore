@@ -1,0 +1,11 @@
+.venv
+data
+out
+reference
+calibration
+research
+docs
+tests
+**/__pycache__
+staticfiles
+.env
