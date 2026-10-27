@@ -1,0 +1,11 @@
+.venv
+.env
+data
+out
+reference
+calibration
+agent-test
+staticfiles
+public
+.pytest_cache
+**/__pycache__

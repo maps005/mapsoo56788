@@ -29,7 +29,9 @@ def env_bool(name: str, default: bool) -> bool:
     return os.environ.get(name, str(default)).lower() in ("1", "true", "yes", "on")
 
 
-DEBUG = env_bool("DJANGO_DEBUG", True)
+# Vercel (serverless): read-only code folder, so data goes to /tmp and the database must be external (DATABASE_URL)
+ON_VERCEL = bool(os.environ.get("VERCEL"))
+DEBUG = env_bool("DJANGO_DEBUG", not ON_VERCEL)
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY") or (
     "dev-only-insecure-key-change-me" if DEBUG else None)
 if not SECRET_KEY:
@@ -37,6 +39,9 @@ if not SECRET_KEY:
 
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
+if ON_VERCEL:  # the project's *.vercel.app addresses (custom domains go in the variables above)
+    ALLOWED_HOSTS += [".vercel.app"]
+    CSRF_TRUSTED_ORIGINS += ["https://*.vercel.app"]
 # Cross-site requests carry only the origin (never the page path); OpenStreetMap blocks map tiles without it.
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
@@ -63,6 +68,8 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "planner.security.ContentSecurityPolicyMiddleware",
 ]
+if ON_VERCEL:  # Vercel's CDN serves /static from public/static
+    MIDDLEWARE.remove("whitenoise.middleware.WhiteNoiseMiddleware")
 
 ROOT_URLCONF = "planner_site.urls"
 TEMPLATES = [{
@@ -78,7 +85,7 @@ TEMPLATES = [{
 }]
 WSGI_APPLICATION = "planner_site.wsgi.application"
 
-DATA_DIR = Path(os.environ.get("FTTH_DATA_DIR", BASE_DIR / "data"))
+DATA_DIR = Path(os.environ.get("FTTH_DATA_DIR", "/tmp/archplanner" if ON_VERCEL else BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATABASES = {"default": dj_database_url.config(
     default=f"sqlite:///{(DATA_DIR / 'planner.sqlite3').as_posix()}", conn_max_age=600)}
@@ -102,10 +109,11 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+STATIC_ROOT = Path(os.environ.get("DJANGO_STATIC_ROOT", BASE_DIR / "staticfiles"))
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage" if not DEBUG
+    # on Vercel the CDN serves the collected files, and the function has no manifest to look names up in
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage" if not (DEBUG or ON_VERCEL)
                     else "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 # Survey photos are private: served through an access-checked view, never as public media.

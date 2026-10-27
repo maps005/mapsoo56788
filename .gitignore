@@ -7,3 +7,5 @@ reference/
 calibration/
 agent-test/
 .env
+public/
+staticfiles/
