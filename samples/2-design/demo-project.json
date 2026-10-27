@@ -1,0 +1,749 @@
+{
+ "info": {
+  "name": "Sample FTTH project (demo)",
+  "area": "Demo estate, Nairobi",
+  "client": "Demo ISP",
+  "prepared_by": "Planner",
+  "survey_date": "2026-10-20",
+  "currency": "KES",
+  "region": "",
+  "zone": "",
+  "cluster": "",
+  "surveyors": "",
+  "olt_name": "",
+  "olt_ports_available": "",
+  "interception": "",
+  "interception_node": "",
+  "interception_nodes": [],
+  "design_style": "per_premise",
+  "extend_to": [],
+  "feeder_cores_available": "",
+  "company": "",
+  "drawing_no": "",
+  "lead_planner": "",
+  "planned_by": "",
+  "drawn_by": "",
+  "checked_by": "",
+  "approved_by": "",
+  "introduction": "Ground survey and FTTH design for the Infinity Area estate along the Eastern Bypass.",
+  "findings": "Existing wooden poles along the main access road are in good condition. An existing splice enclosure (POP) is located at the estate entrance.",
+  "proposed_solution": "A 48-core main cable from the POP along the access road with a first-stage 1x8 splitter enclosure, and 12-core spur cables to FATs with 1x8 second-stage splitters.",
+  "special_requirements": "One road crossing near P004 requires crossing protection.",
+  "recommendations": "Proceed with construction after wayleave approval for the road crossing.",
+  "boundary": [
+   [
+    -1.3105,
+    36.8195
+   ],
+   [
+    -1.3105,
+    36.8265
+   ],
+   [
+    -1.3165,
+    36.8265
+   ],
+   [
+    -1.3165,
+    36.8195
+   ]
+  ],
+  "survey_status": "draft",
+  "survey_approved_by": "",
+  "survey_approved_at": "",
+  "survey_fingerprint": "",
+  "design_status": "draft"
+ },
+ "poles": [
+  {
+   "id": "P001",
+   "lat": -1.3123,
+   "lon": 36.8211,
+   "type": "wood",
+   "height_m": 9.0,
+   "condition": "good",
+   "status": "existing",
+   "notes": ""
+  },
+  {
+   "id": "P002",
+   "lat": -1.3125,
+   "lon": 36.8222,
+   "type": "wood",
+   "height_m": 9.0,
+   "condition": "good",
+   "status": "existing",
+   "notes": ""
+  },
+  {
+   "id": "P003",
+   "lat": -1.3127,
+   "lon": 36.8233,
+   "type": "wood",
+   "height_m": 9.0,
+   "condition": "good",
+   "status": "existing",
+   "notes": ""
+  },
+  {
+   "id": "P004",
+   "lat": -1.3129,
+   "lon": 36.8244,
+   "type": "wood",
+   "height_m": 9.0,
+   "condition": "good",
+   "status": "existing",
+   "notes": ""
+  },
+  {
+   "id": "P005",
+   "lat": -1.3131,
+   "lon": 36.8255,
+   "type": "wood",
+   "height_m": 9.0,
+   "condition": "good",
+   "status": "existing",
+   "notes": ""
+  },
+  {
+   "id": "P006",
+   "lat": -1.3138,
+   "lon": 36.8233,
+   "type": "wood",
+   "height_m": 9.0,
+   "condition": "good",
+   "status": "proposed",
+   "notes": ""
+  },
+  {
+   "id": "P007",
+   "lat": -1.3149,
+   "lon": 36.8234,
+   "type": "wood",
+   "height_m": 9.0,
+   "condition": "good",
+   "status": "proposed",
+   "notes": ""
+  },
+  {
+   "id": "P008",
+   "lat": -1.3158,
+   "lon": 36.8235,
+   "type": "wood",
+   "height_m": 9.0,
+   "condition": "good",
+   "status": "proposed",
+   "notes": ""
+  }
+ ],
+ "homes": [
+  {
+   "id": "H001",
+   "lat": -1.3119,
+   "lon": 36.824,
+   "kind": "home",
+   "units": 1,
+   "name": "Plot 101",
+   "address": "",
+   "fat": null,
+   "extra_fats": [],
+   "acquired": false,
+   "field_type": "",
+   "access_notes": "",
+   "notes": ""
+  },
+  {
+   "id": "H002",
+   "lat": -1.3118,
+   "lon": 36.8247,
+   "kind": "home",
+   "units": 1,
+   "name": "Plot 102",
+   "address": "",
+   "fat": null,
+   "extra_fats": [],
+   "acquired": false,
+   "field_type": "",
+   "access_notes": "",
+   "notes": ""
+  },
+  {
+   "id": "H003",
+   "lat": -1.3136,
+   "lon": 36.8246,
+   "kind": "mdu",
+   "units": 4,
+   "name": "Plot 103",
+   "address": "",
+   "fat": null,
+   "extra_fats": [],
+   "acquired": false,
+   "field_type": "",
+   "access_notes": "",
+   "notes": ""
+  },
+  {
+   "id": "H004",
+   "lat": -1.3134,
+   "lon": 36.8251,
+   "kind": "home",
+   "units": 1,
+   "name": "Plot 104",
+   "address": "",
+   "fat": null,
+   "extra_fats": [],
+   "acquired": false,
+   "field_type": "",
+   "access_notes": "",
+   "notes": ""
+  },
+  {
+   "id": "H005",
+   "lat": -1.315,
+   "lon": 36.8243,
+   "kind": "home",
+   "units": 1,
+   "name": "Plot 105",
+   "address": "",
+   "fat": null,
+   "extra_fats": [],
+   "acquired": false,
+   "field_type": "",
+   "access_notes": "",
+   "notes": ""
+  },
+  {
+   "id": "H006",
+   "lat": -1.3155,
+   "lon": 36.8243,
+   "kind": "home",
+   "units": 1,
+   "name": "Plot 106",
+   "address": "",
+   "fat": null,
+   "extra_fats": [],
+   "acquired": false,
+   "field_type": "",
+   "access_notes": "",
+   "notes": ""
+  },
+  {
+   "id": "H007",
+   "lat": -1.3162,
+   "lon": 36.8228,
+   "kind": "mdu",
+   "units": 3,
+   "name": "Plot 107",
+   "address": "",
+   "fat": null,
+   "extra_fats": [],
+   "acquired": false,
+   "field_type": "",
+   "access_notes": "",
+   "notes": ""
+  },
+  {
+   "id": "H008",
+   "lat": -1.3153,
+   "lon": 36.8226,
+   "kind": "home",
+   "units": 1,
+   "name": "Plot 108",
+   "address": "",
+   "fat": null,
+   "extra_fats": [],
+   "acquired": false,
+   "field_type": "",
+   "access_notes": "",
+   "notes": ""
+  }
+ ],
+ "nodes": [
+  {
+   "id": "POP01",
+   "kind": "POP",
+   "lat": -1.3121,
+   "lon": 36.8205,
+   "pole": null,
+   "status": "existing",
+   "ports": 16,
+   "notes": "Existing enclosure"
+  },
+  {
+   "id": "PON01",
+   "kind": "PON",
+   "lat": -1.3127,
+   "lon": 36.8233,
+   "pole": "P003",
+   "status": "proposed",
+   "ports": null,
+   "notes": ""
+  },
+  {
+   "id": "JB01",
+   "kind": "JB",
+   "lat": -1.3131,
+   "lon": 36.8255,
+   "pole": "P005",
+   "status": "proposed",
+   "ports": null,
+   "notes": ""
+  },
+  {
+   "id": "FAT01",
+   "kind": "FAT",
+   "lat": -1.3129,
+   "lon": 36.8244,
+   "pole": "P004",
+   "status": "proposed",
+   "ports": 16,
+   "notes": ""
+  },
+  {
+   "id": "FAT02",
+   "kind": "FAT",
+   "lat": -1.3158,
+   "lon": 36.8235,
+   "pole": "P008",
+   "status": "proposed",
+   "ports": 16,
+   "notes": ""
+  }
+ ],
+ "splitters": [],
+ "cables": [
+  {
+   "id": "C001",
+   "kind": "main",
+   "cores": 48,
+   "from_node": "POP01",
+   "to_node": "PON01",
+   "install": "aerial",
+   "status": "proposed",
+   "path": [
+    {
+     "lat": -1.3121,
+     "lon": 36.8205,
+     "pole": null,
+     "node": "POP01",
+     "crossing": false
+    },
+    {
+     "lat": -1.3123,
+     "lon": 36.8211,
+     "pole": "P001",
+     "node": null,
+     "crossing": false
+    },
+    {
+     "lat": -1.3125,
+     "lon": 36.8222,
+     "pole": "P002",
+     "node": null,
+     "crossing": false
+    },
+    {
+     "lat": -1.3127,
+     "lon": 36.8233,
+     "pole": "P003",
+     "node": "PON01",
+     "crossing": false
+    }
+   ],
+   "reserved": [],
+   "notes": ""
+  },
+  {
+   "id": "C002",
+   "kind": "spur",
+   "cores": 12,
+   "from_node": "PON01",
+   "to_node": "FAT01",
+   "install": "aerial",
+   "status": "proposed",
+   "path": [
+    {
+     "lat": -1.3127,
+     "lon": 36.8233,
+     "pole": "P003",
+     "node": "PON01",
+     "crossing": false
+    },
+    {
+     "lat": -1.3129,
+     "lon": 36.8244,
+     "pole": "P004",
+     "node": "FAT01",
+     "crossing": false
+    }
+   ],
+   "reserved": [],
+   "notes": ""
+  },
+  {
+   "id": "C003",
+   "kind": "spur",
+   "cores": 12,
+   "from_node": "FAT01",
+   "to_node": "JB01",
+   "install": "aerial",
+   "status": "proposed",
+   "path": [
+    {
+     "lat": -1.3129,
+     "lon": 36.8244,
+     "pole": "P004",
+     "node": "FAT01",
+     "crossing": true
+    },
+    {
+     "lat": -1.3131,
+     "lon": 36.8255,
+     "pole": "P005",
+     "node": "JB01",
+     "crossing": false
+    }
+   ],
+   "reserved": [],
+   "notes": ""
+  },
+  {
+   "id": "C004",
+   "kind": "spur",
+   "cores": 12,
+   "from_node": "PON01",
+   "to_node": "FAT02",
+   "install": "aerial",
+   "status": "proposed",
+   "path": [
+    {
+     "lat": -1.3127,
+     "lon": 36.8233,
+     "pole": "P003",
+     "node": "PON01",
+     "crossing": false
+    },
+    {
+     "lat": -1.3138,
+     "lon": 36.8233,
+     "pole": "P006",
+     "node": null,
+     "crossing": false
+    },
+    {
+     "lat": -1.3149,
+     "lon": 36.8234,
+     "pole": "P007",
+     "node": null,
+     "crossing": false
+    },
+    {
+     "lat": -1.3158,
+     "lon": 36.8235,
+     "pole": "P008",
+     "node": "FAT02",
+     "crossing": false
+    }
+   ],
+   "reserved": [],
+   "notes": ""
+  }
+ ],
+ "ducts": [],
+ "connections": [],
+ "materials": [
+  {
+   "code": "FOC-12C",
+   "description": "ADSS fiber cable, 100m s/s clear span 12 xSM G652D",
+   "unit": "M",
+   "rate": 70.0,
+   "category": "Cable"
+  },
+  {
+   "code": "FOC-48C",
+   "description": "ADSS fiber cable, 100m s/s clear span 48 xSM G652D",
+   "unit": "M",
+   "rate": 69.0,
+   "category": "Cable"
+  },
+  {
+   "code": "FOC-24C",
+   "description": "ADSS fiber cable, 100m s/s clear span 24 xSM G652D",
+   "unit": "M",
+   "rate": 56.0,
+   "category": "Cable"
+  },
+  {
+   "code": "FAT-16P",
+   "description": "FAT 16 Port wall/pole mounted outdoor plastic",
+   "unit": "PCS",
+   "rate": 2800.0,
+   "category": "FAT"
+  },
+  {
+   "code": "FAT-24P",
+   "description": "FAT 24 Port wall/pole mounted outdoor plastic",
+   "unit": "PCS",
+   "rate": 3500.0,
+   "category": "FAT"
+  },
+  {
+   "code": "ENC-SPLICE",
+   "description": "Fiber Termination Box 48c-ADSS",
+   "unit": "PCS",
+   "rate": 3300.0,
+   "category": "Splice Closure"
+  },
+  {
+   "code": "JB",
+   "description": "Junction Box 24P ADSS",
+   "unit": "PCS",
+   "rate": 2600.0,
+   "category": "Junction Box"
+  },
+  {
+   "code": "POLE-NEW",
+   "description": "Pole, Supply & installation Wooden 8m",
+   "unit": "PCS",
+   "rate": 5500.0,
+   "category": "Pole"
+  },
+  {
+   "code": "J-HOOK",
+   "description": "Supply of J - Hooks(Small)",
+   "unit": "PCS",
+   "rate": 200.0,
+   "category": "Pole Accessories"
+  },
+  {
+   "code": "J-HOOK-L",
+   "description": "Supply of J - Hooks(Large)",
+   "unit": "PCS",
+   "rate": 300.0,
+   "category": "Pole Accessories"
+  },
+  {
+   "code": "UPB",
+   "description": "Supply of Universal Pole bracket",
+   "unit": "PCS",
+   "rate": 200.0,
+   "category": "Pole Accessories"
+  },
+  {
+   "code": "TENSION-CLAMP",
+   "description": "Supply of Pole Tension Clamp PA 1500",
+   "unit": "PCS",
+   "rate": 250.0,
+   "category": "Pole Accessories"
+  },
+  {
+   "code": "TENSION-CLAMP-2000",
+   "description": "Supply of Pole Tension Clamp PA 2000",
+   "unit": "PCS",
+   "rate": 300.0,
+   "category": "Pole Accessories"
+  },
+  {
+   "code": "STEEL-STRAP",
+   "description": "Supply of Pole Steel Straps",
+   "unit": "ROLL",
+   "rate": 2000.0,
+   "category": "Pole Accessories"
+  },
+  {
+   "code": "BUCKLE-CLIP",
+   "description": "Supply of Buckle Clips",
+   "unit": "PCS",
+   "rate": 14.0,
+   "category": "Pole Accessories"
+  },
+  {
+   "code": "CABLE-TIES",
+   "description": "Supply of Cable Ties (Large)",
+   "unit": "PKT",
+   "rate": 260.0,
+   "category": "Pole Accessories"
+  },
+  {
+   "code": "EXT-ARM",
+   "description": "Supply of Extension Arms(Medium)",
+   "unit": "PCS",
+   "rate": 3500.0,
+   "category": "Pole Accessories"
+  },
+  {
+   "code": "EXT-ARM-L",
+   "description": "Supply of Extension Arms(Large)",
+   "unit": "PCS",
+   "rate": 6500.0,
+   "category": "Pole Accessories"
+  },
+  {
+   "code": "WALL-CLAMP",
+   "description": "Wall Clamp",
+   "unit": "PCS",
+   "rate": 300.0,
+   "category": "Pole Accessories"
+  },
+  {
+   "code": "TRUNKING",
+   "description": "PlasticTrunking size 38*25mm",
+   "unit": "M",
+   "rate": 115.0,
+   "category": "Duct"
+  },
+  {
+   "code": "HDPE-DUCT",
+   "description": "HDPE Low Friction, Silicon lined  32/26mm",
+   "unit": "M",
+   "rate": 45.0,
+   "category": "Duct"
+  },
+  {
+   "code": "SPL-1X16",
+   "description": "1X16 splitters for closures",
+   "unit": "PCS",
+   "rate": 350.0,
+   "category": "Splitter"
+  },
+  {
+   "code": "SPL-1X8",
+   "description": "1X8 splitters for closures",
+   "unit": "PCS",
+   "rate": 172.0,
+   "category": "Splitter"
+  },
+  {
+   "code": "INST-AERIAL",
+   "description": "Installation of Aerial Cable",
+   "unit": "M",
+   "rate": 22.0,
+   "category": "Implementation"
+  },
+  {
+   "code": "INST-TRUNKING",
+   "description": "Install PlasticTrunking size 38*25mm",
+   "unit": "M",
+   "rate": 55.0,
+   "category": "Implementation"
+  },
+  {
+   "code": "CIVIL-TRENCH",
+   "description": "Civil Works for Main Route(1.2 Trench)",
+   "unit": "M",
+   "rate": 550.0,
+   "category": "Implementation"
+  },
+  {
+   "code": "BUILDING-CABLING",
+   "description": "Building Cabling",
+   "unit": "PCS",
+   "rate": 3000.0,
+   "category": "Implementation"
+  },
+  {
+   "code": "ROAD-X",
+   "description": "Road crossing protection (sample rate)",
+   "unit": "ea",
+   "rate": 1500.0,
+   "category": "Civil"
+  }
+ ],
+ "adjustments": [],
+ "rules": {
+  "corner_angle_deg": 45.0,
+  "jhook_per_straight_cable": 1,
+  "tension_per_cable_end": 1,
+  "tension_per_cable_corner": 2,
+  "max_suspension_poles": 3,
+  "tension_pole_passing": "none",
+  "upb_tension_per_bracket": 4,
+  "upb_per_equipment": 0,
+  "anchor_at_passing_equipment": false,
+  "extension_arm_pole_types": [
+   "KPTX"
+  ],
+  "accessories_on_existing_cables": false,
+  "cable_extra_pct": 10.0,
+  "cable_end_allowance_m": 20.0,
+  "sag_per_point_m": 0.5,
+  "cable_round_up_m": 10.0,
+  "slack_per_cable_end_m": 30.0,
+  "slack_per_passing_node_m": 30.0,
+  "slack_at_passing_fat_cable_kinds": [
+   "main"
+  ],
+  "riser_per_pole_end_m": 0.0,
+  "conduit_per_mdu_m": 0.0,
+  "conduit_per_home_m": 0.0,
+  "default_pon_split": 8,
+  "default_fat_split": 8,
+  "default_fat_ports": 24,
+  "cable_code": "FOC-{cores}C",
+  "node_codes": {
+   "ENCLOSURE": "ENC-SPLICE",
+   "PR_ENCLOSURE": "ENC-SPLICE",
+   "JB": "JB",
+   "FAT": "FAT-{ports}P",
+   "PON": "ENC-SPLICE"
+  },
+  "splitter_code": "SPL-1X{outputs}",
+  "jhook_code": "J-HOOK",
+  "tension_code": "TENSION-CLAMP",
+  "upb_code": "UPB",
+  "extension_arm_code": "EXT-ARM",
+  "pole_code": "POLE-NEW",
+  "conduit_code": "PVC-CONDUIT",
+  "trunking_code": "TRUNKING",
+  "duct_extra_pct": 10.0,
+  "duct_allowance_m": 10.0,
+  "duct_round_up_m": 10.0,
+  "mdu_fat_radius_m": 60.0,
+  "crossing_code": "ROAD-X",
+  "fat_load_take_rate": 1.0,
+  "share_fat_splitters": false,
+  "implementation_costs": false,
+  "install_aerial_code": "INST-AERIAL",
+  "install_trunking_code": "INST-TRUNKING",
+  "trench_code": "CIVIL-TRENCH",
+  "building_cabling_code": "BUILDING-CABLING",
+  "consumables": [
+   {
+    "code": "STEEL-STRAP",
+    "basis": "upb",
+    "ratio": 0.06666666666666667,
+    "rounding": "up",
+    "step": 1.0
+   },
+   {
+    "code": "BUCKLE-CLIP",
+    "basis": "upb",
+    "ratio": 2.0,
+    "rounding": "nearest",
+    "step": 10.0
+   },
+   {
+    "code": "CABLE-TIES",
+    "basis": "upb",
+    "ratio": 0.06666666666666667,
+    "rounding": "up",
+    "step": 1.0
+   },
+   {
+    "code": "FOC-24C",
+    "basis": "jb",
+    "ratio": 20.0,
+    "rounding": "up",
+    "step": 1.0
+   },
+   {
+    "code": "WALL-CLAMP",
+    "basis": "trunking_route",
+    "ratio": 2.0,
+    "rounding": "up",
+    "step": 1.0
+   }
+  ]
+ },
+ "photos": []
+}
