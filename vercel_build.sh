@@ -5,7 +5,7 @@ set -e
 
 missing=""
 [ -n "${DJANGO_SECRET_KEY:-}" ] || missing="$missing DJANGO_SECRET_KEY"
-[ -n "${DATABASE_URL:-}" ] || missing="$missing DATABASE_URL"
+[ -n "${DATABASE_URL:-}${POSTGRES_URL:-}" ] || missing="$missing DATABASE_URL"
 if [ -n "$missing" ]; then
   echo "------------------------------------------------------------------------------------------"
   echo "ArchPlanner cannot be deployed yet. Add these in Vercel: Project > Settings > Environment Variables:"

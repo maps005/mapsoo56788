@@ -87,8 +87,25 @@ WSGI_APPLICATION = "planner_site.wsgi.application"
 
 DATA_DIR = Path(os.environ.get("FTTH_DATA_DIR", "/tmp/archplanner" if ON_VERCEL else BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-DATABASES = {"default": dj_database_url.config(
-    default=f"sqlite:///{(DATA_DIR / 'planner.sqlite3').as_posix()}", conn_max_age=600)}
+def _database_url() -> str | None:
+    """DATABASE_URL, else the POSTGRES_URL injected by the Vercel Supabase integration (minus its non-libpq "supa" option)."""
+    url = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
+    if not url:
+        return None
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query))
+    query.pop("supa", None)
+    query.setdefault("sslmode", "require")
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
+_db_url = _database_url()
+DATABASES = {"default": dj_database_url.parse(_db_url, conn_max_age=0 if ON_VERCEL else 600) if _db_url
+             else dj_database_url.parse(f"sqlite:///{(DATA_DIR / 'planner.sqlite3').as_posix()}", conn_max_age=600)}
+if str(DATABASES["default"].get("PORT")) == "6543":
+    # Supabase transaction pooler (PgBouncer) does not support server-side cursors
+    DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 if DATABASES["default"]["ENGINE"].endswith("sqlite3"):
     # Local SQLite: readers do not block the writer (WAL), writers queue for up to 30 s instead of failing with
     # "database is locked", and take the write lock at the start of a transaction. Production uses PostgreSQL.
