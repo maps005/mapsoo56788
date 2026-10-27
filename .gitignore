@@ -9,3 +9,6 @@ agent-test/
 .env
 public/
 staticfiles/
+
+.vercel
+.env*
