@@ -1,37 +1,170 @@
-/* Django admin in the ArchPlanner colours: brand header in every theme, light colours only in light mode */
-:root {
-  --primary: #13406e; --secondary: #1d5a94; --accent: #39d0ff; --primary-fg: #fff;
-  --header-color: #dbe7f5; --header-branding-color: #fff; --header-bg: #0b2a4a; --header-link-color: #fff;
-  --breadcrumbs-fg: #c9d8ea; --breadcrumbs-link-fg: #fff; --breadcrumbs-bg: #13406e;
-  --button-bg: #13406e; --button-hover-bg: #1d5a94; --default-button-bg: #1d5a94; --default-button-hover-bg: #13406e;
-  --object-tools-bg: #1d5a94; --object-tools-hover-bg: #13406e;
+/* ArchPlanner admin: the site's look (white cards on light grey, navy header with a gold line, blue actions).
+   Light only, like the rest of the site. Loaded after Django's admin CSS. */
+:root, html[data-theme] {
+  --ap-navy: #0b2545; --ap-navy-2: #12406f; --ap-blue: #1557b0; --ap-blue-dark: #0d3f85; --ap-gold: #d4a437;
+  --ap-bg: #f4f6f9; --ap-card: #fff; --ap-line: #dbe3ee; --ap-soft: #eef3fa; --ap-ink: #0f1f36; --ap-muted: #5d6e85;
+  --primary: var(--ap-navy-2); --secondary: var(--ap-blue); --accent: var(--ap-gold); --primary-fg: #fff;
+  --body-fg: var(--ap-ink); --body-bg: var(--ap-bg); --body-quiet-color: var(--ap-muted); --body-loud-color: var(--ap-navy);
+  --header-color: #dbe7f5; --header-branding-color: #fff; --header-bg: var(--ap-navy); --header-link-color: #fff;
+  --breadcrumbs-fg: var(--ap-muted); --breadcrumbs-link-fg: var(--ap-blue); --breadcrumbs-bg: var(--ap-card);
+  --link-fg: var(--ap-blue); --link-hover-color: var(--ap-blue-dark); --link-selected-fg: var(--ap-navy);
+  --hairline-color: #e3e9f1; --border-color: var(--ap-line); --darkened-bg: var(--ap-soft);
+  --selected-bg: #e8f0fc; --selected-row: #f3f8fe;
+  --button-fg: #fff; --button-bg: var(--ap-blue); --button-hover-bg: var(--ap-blue-dark);
+  --default-button-bg: var(--ap-blue); --default-button-hover-bg: var(--ap-blue-dark);
+  --close-button-bg: #8a97a8; --close-button-hover-bg: #6b7787;
+  --delete-button-bg: #c62828; --delete-button-hover-bg: #a31f1f;
+  --object-tools-fg: #fff; --object-tools-bg: var(--ap-blue); --object-tools-hover-bg: var(--ap-blue-dark);
+  --message-success-bg: #e7f5ea; --message-warning-bg: #fff6e0; --message-error-bg: #fdecec;
+  --font-family-primary: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
 }
-html[data-theme="light"] {
-  --link-fg: #13406e; --link-hover-color: #1d5a94; --link-selected-fg: #0b2a4a;
-  --selected-bg: #e8eef6; --selected-row: #f3f8fe; --body-bg: #f4f6f9; --darkened-bg: #eef2f7; --hairline-color: #d9dee5;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --link-fg: #13406e; --link-hover-color: #1d5a94; --link-selected-fg: #0b2a4a;
-    --selected-bg: #e8eef6; --selected-row: #f3f8fe; --body-bg: #f4f6f9; --darkened-bg: #eef2f7; --hairline-color: #d9dee5;
-  }
-}
-html[data-theme="dark"] { --link-fg: #8fc1ff; --link-hover-color: #b9d7ff; --link-selected-fg: #d6e8ff; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --link-fg: #8fc1ff; --link-hover-color: #b9d7ff; --link-selected-fg: #d6e8ff; }
-}
-#header { background: linear-gradient(90deg, #0b2a4a 0%, #13406e 55%, #1d5a94 100%); border-bottom: 3px solid #0a223c; padding: 12px 30px; }
-#site-name a { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: .5px; font-size: 18px; }
-#site-name small { font-weight: 400; opacity: .75; font-size: 13px; letter-spacing: 0; }
-div.breadcrumbs { background: #13406e; }
-.module h2, .module caption, .inline-group h2 { background: linear-gradient(90deg, #13406e, #1d5a94); color: #fff; }
-.button, input[type=submit], input[type=button], .submit-row input, a.button { border-radius: 6px; }
-#nav-sidebar .current-model { background: var(--selected-bg); }
+body { background: var(--ap-bg); font-size: 14px; }
+.theme-toggle { display: none !important; }  /* one light theme, like the site */
 
-/* 'forgot password' notifications */
-.ap-notice { margin: 12px 40px 0; padding: 10px 14px; border-radius: 8px; font-size: 13px;
-  background: #fff6e0; border: 1px solid #f0c96a; color: #6b4a00; }
-.ap-notice a { color: #0d3f85; font-weight: 600; }
-
-#site-name .cochip { display: inline-flex; align-items: center; padding: 2px 6px; border-radius: 6px; background: #fff; margin-right: 6px; vertical-align: middle; }
+/* ---- header -------------------------------------------------------------------------------------------- */
+#header { background: linear-gradient(90deg, var(--ap-navy) 0%, var(--ap-navy-2) 60%, #1a5590 100%);
+  border-bottom: 3px solid var(--ap-gold); padding: 10px 28px; height: auto; min-height: 56px; box-sizing: border-box;
+  gap: 10px 16px; display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+#header #branding { margin: 0; }
+#site-name { margin: 0; }
+#site-name a { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: .4px; font-size: 18px;
+  color: #fff; text-decoration: none; }
+#site-name a span b { color: #e2b44c; font-weight: 600; }
+#site-name small { font-weight: 600; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: #fff;
+  background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.25); padding: 2px 8px; border-radius: 999px; }
+#site-name .cochip { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 8px; background: #fff; }
 #site-name .cochip img { max-height: 26px; max-width: 110px; width: auto; }
+#user-tools { font-size: 0; text-transform: none; letter-spacing: 0; color: #c9d8ea; display: flex; align-items: center;
+  flex-wrap: wrap; gap: 6px; justify-content: flex-end; }  /* font-size 0 hides the " / " separators */
+#user-tools > * { font-size: 12.5px; }
+#user-tools strong { color: #fff; }
+#user-tools a, #logout-form button { color: #fff !important; text-decoration: none; border: 1px solid rgba(255,255,255,.28);
+  border-radius: 7px; padding: 4px 10px; background: rgba(255,255,255,.06); font-size: 12.5px; text-transform: none; }
+#user-tools a:hover, #logout-form button:hover { background: rgba(255,255,255,.16); border-color: rgba(226,180,76,.8); }
+#logout-form { display: inline; margin: 0; }
+#logout-form button { cursor: pointer; font-family: inherit; }
+.ap-welcome { font-size: 12.5px !important; margin-right: 4px; }
+
+/* ---- breadcrumbs, messages ------------------------------------------------------------------------------ */
+div.breadcrumbs { background: var(--ap-card); color: var(--ap-muted); border-bottom: 1px solid var(--ap-line);
+  padding: 10px 28px; font-size: 13px; }
+div.breadcrumbs a { color: var(--ap-blue); font-weight: 600; }
+ul.messagelist { padding: 0; margin: 14px 28px 0; }
+ul.messagelist li { border-radius: 10px; margin: 0 0 8px; padding: 10px 14px 10px 40px; font-size: 13.5px; }
+.ap-notice { margin: 14px 28px 0; padding: 11px 14px; border-radius: 10px; font-size: 13px; background: #fff6e0;
+  border: 1px solid #f0c96a; color: #6b4a00; }
+.ap-notice a { color: var(--ap-blue-dark); font-weight: 600; }
+
+/* ---- layout --------------------------------------------------------------------------------------------- */
+#main { background: var(--ap-bg); }
+#content { padding: 22px 28px 40px; }
+#content h1 { color: var(--ap-navy); font-weight: 750; font-size: 24px; margin: 0 0 16px; }
+#content h2 { color: var(--ap-navy); }
+
+/* sidebar navigation */
+#nav-sidebar { background: var(--ap-card); border-right: 1px solid var(--ap-line); padding: 12px 0; }
+#nav-filter { border-radius: 8px; border: 1px solid var(--ap-line); background: var(--ap-soft); margin: 0 12px 10px;
+  width: calc(100% - 24px); padding: 7px 10px; }
+#nav-sidebar .module { margin: 0 10px 12px; }
+#nav-sidebar .current-model { background: var(--selected-bg); box-shadow: inset 3px 0 0 var(--ap-gold); }
+#nav-sidebar .current-model a { color: var(--ap-navy); font-weight: 700; }
+.toggle-nav-sidebar { background: var(--ap-card); border-right: 1px solid var(--ap-line); color: var(--ap-blue); }
+
+/* ---- cards and headings ----------------------------------------------------------------------------- */
+.module { background: var(--ap-card); border-radius: 12px; border: 1px solid var(--ap-line); overflow: hidden;
+  box-shadow: 0 6px 18px -14px rgba(11,37,69,.4); margin-bottom: 18px; }
+.module h2, .module caption, .inline-group h2 { background: linear-gradient(90deg, var(--ap-navy), var(--ap-navy-2));
+  color: #fff; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 10px 14px; }
+.module caption a, .module h2 a { color: #fff; }
+.module table { width: 100%; }
+.module th, .module td { padding: 9px 14px; border-bottom: 1px solid var(--hairline-color); }
+.module tr:last-child th, .module tr:last-child td { border-bottom: 0; }
+a.addlink, a.changelink, a.viewlink { font-weight: 600; }
+
+/* ---- change lists -------------------------------------------------------------------------------- */
+#changelist .changelist-form-container { background: var(--ap-card); border: 1px solid var(--ap-line); border-radius: 12px;
+  overflow: hidden; box-shadow: 0 6px 18px -14px rgba(11,37,69,.4); }
+#changelist #toolbar { background: var(--ap-soft); border-bottom: 1px solid var(--ap-line); padding: 12px 14px; margin: 0; }
+#changelist-search input[type=text] { border-radius: 8px; border: 1px solid var(--ap-line); padding: 7px 10px; min-width: 260px; }
+#changelist .actions { background: var(--ap-card); border-bottom: 1px solid var(--ap-line); padding: 10px 14px; }
+#result_list { width: 100%; }
+#result_list thead th { background: var(--ap-soft); color: var(--ap-navy); font-size: 11.5px; letter-spacing: .06em;
+  text-transform: uppercase; border-bottom: 1px solid var(--ap-line); }
+#result_list thead th a, #result_list thead th .text span { color: var(--ap-navy); padding: 10px 12px; }
+#result_list td, #result_list tbody th { padding: 10px 12px; vertical-align: middle; border-bottom: 1px solid var(--hairline-color); }
+#result_list tbody tr:hover td, #result_list tbody tr:hover th { background: #f6f9fd; }
+#result_list tbody tr.selected td, #result_list tbody tr.selected th { background: var(--selected-row); }
+#result_list tbody th a { font-weight: 700; }
+#changelist .paginator { background: var(--ap-card); border-top: 1px solid var(--ap-line); padding: 10px 14px; color: var(--ap-muted); margin: 0; }
+.paginator a:link, .paginator .this-page { border-radius: 6px; padding: 3px 8px; }
+.paginator .this-page { background: var(--ap-blue); color: #fff; }
+#changelist-filter { background: var(--ap-card); border: 1px solid var(--ap-line); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 6px 18px -14px rgba(11,37,69,.4); }
+#changelist-filter h2 { background: linear-gradient(90deg, var(--ap-navy), var(--ap-navy-2)); color: #fff; font-size: 12px; letter-spacing: .08em; }
+#changelist-filter h3 { color: var(--ap-navy); font-size: 12.5px; }
+#changelist-filter li.selected a { color: var(--ap-blue); font-weight: 700; }
+.object-tools a, .object-tools a:link, .object-tools a:visited { border-radius: 999px; padding: 6px 14px; font-size: 12px;
+  font-weight: 700; letter-spacing: .02em; text-transform: none; background: var(--ap-blue); }
+.object-tools a:hover { background: var(--ap-blue-dark); }
+
+/* ---- forms ---------------------------------------------------------------------------------------- */
+.form-row { padding: 12px 16px; border-bottom: 1px solid var(--hairline-color); }
+.aligned label, .form-row label { color: var(--ap-navy); font-weight: 600; }
+input[type=text], input[type=password], input[type=email], input[type=url], input[type=number], input[type=tel],
+input[type=date], input[type=search], textarea, select, .vTextField {
+  border: 1px solid var(--ap-line); border-radius: 8px; padding: 7px 10px; background: #fff; color: var(--ap-ink); }
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--ap-blue); box-shadow: 0 0 0 3px rgba(21,87,176,.15); }
+.selector-chosen h2 { background: var(--ap-blue); }
+.submit-row { background: var(--ap-card); border: 1px solid var(--ap-line); border-radius: 12px; padding: 12px 14px;
+  box-shadow: 0 6px 18px -14px rgba(11,37,69,.4); position: sticky; bottom: 0; z-index: 5; }
+.button, input[type=submit], input[type=button], .submit-row input, a.button, button.button {
+  border-radius: 8px; padding: 9px 16px; font-weight: 700; font-size: 13px; }
+.submit-row a.deletelink, .submit-row a.closelink { border-radius: 8px; padding: 9px 16px; height: auto; }
+.inline-group { border-radius: 12px; overflow: hidden; border: 1px solid var(--ap-line); background: var(--ap-card); }
+.errornote { border-radius: 10px; }
+
+/* ---- dashboard ------------------------------------------------------------------------------------ */
+.dashboard #content { max-width: 1280px; }
+.ap-hello { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; justify-content: space-between; margin-bottom: 18px; }
+.ap-hello h1 { margin: 0 !important; }
+.ap-hello p { margin: 4px 0 0; color: var(--ap-muted); }
+.ap-quick { display: flex; flex-wrap: wrap; gap: 8px; }
+.ap-quick a { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 9px; font-weight: 700;
+  font-size: 13px; text-decoration: none; background: var(--ap-card); color: var(--ap-navy); border: 1px solid var(--ap-line); }
+.ap-quick a:hover { border-color: var(--ap-gold); color: var(--ap-blue-dark); }
+.ap-quick a.primary { background: var(--ap-blue); border-color: var(--ap-blue); color: #fff; }
+.ap-quick a.primary:hover { background: var(--ap-blue-dark); }
+.ap-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.ap-kpi { display: block; background: var(--ap-card); border: 1px solid var(--ap-line); border-radius: 12px; padding: 14px 16px 14px 18px;
+  box-shadow: 0 6px 18px -14px rgba(11,37,69,.4); text-decoration: none; position: relative; overflow: hidden; }
+.ap-kpi::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--ap-blue); }
+.ap-kpi.gold::before { background: var(--ap-gold); } .ap-kpi.green::before { background: #2e7d32; }
+.ap-kpi.red::before { background: #c62828; } .ap-kpi.amber::before { background: #e07a1f; }
+.ap-kpi b { display: block; font-size: 26px; line-height: 1.15; color: var(--ap-navy); font-weight: 800; }
+.ap-kpi span { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ap-muted); font-weight: 700; }
+a.ap-kpi:hover { border-color: var(--ap-gold); }
+.ap-columns { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.ap-columns .module { margin-bottom: 18px; }
+.ap-recent td { font-size: 13px; }
+.ap-recent td.num { text-align: right; color: var(--ap-muted); white-space: nowrap; }
+.ap-pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.ap-pill.draft { background: var(--ap-soft); color: var(--ap-muted); } .ap-pill.in_review { background: #fff1e0; color: #a05000; }
+.ap-pill.approved { background: #e7f5ea; color: #1e6b25; } .ap-pill.late { background: #fdecec; color: #a31f1f; }
+.ap-empty { padding: 14px; color: var(--ap-muted); }
+.dashboard #content-main .app-list .module { margin-bottom: 18px; }
+@media (max-width: 1024px) { .ap-columns { grid-template-columns: 1fr; } }
+@media (max-width: 1024px) { #header { flex-direction: column; align-items: flex-start; } #user-tools { justify-content: flex-start; } }
+@media (max-width: 767px) {
+  #header { padding: 10px 14px; } #content { padding: 16px 14px 30px; } div.breadcrumbs { padding: 10px 14px; }
+  #changelist-search input[type=text] { min-width: 0; width: 100%; }
+}
+
+#content .module h2, #content .module caption, #content .inline-group h2, #content #changelist-filter h2 { color: #fff; }
+
+/* the dashboard has no Django sidebar: use the full width */
+.dashboard #content { width: auto; max-width: 1280px; margin-right: 0; } .dashboard #content-main { float: none; width: auto; }
+.ap-recent td:first-child { width: 100%; }
+/* inline "assigned to" picker in lists: just the picker, without the edit / add / delete / view icons */
+#result_list .related-widget-wrapper-link { display: none; }
+#result_list .related-widget-wrapper select { min-width: 150px; }

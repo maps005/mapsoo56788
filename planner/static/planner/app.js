@@ -348,7 +348,7 @@ function featureClick(type, obj, e) {
   if (S.mode === "node" && type === "pole") {
     const kind = $("#nodeKind").value;
     const n = { id: nextId(PREFIX[kind], 2), kind, lat: obj.lat, lon: obj.lon, pole: obj.id, status: "proposed",
-                ports: kind === "FAT" ? S.D.rules.default_fat_ports : null, notes: "" };
+                ports: defaultPorts(kind), notes: "" };
     S.D.nodes.push(n); S.sel = { type: "node", id: n.id }; return changed();
   }
   if (S.mode !== "select" && S.mode !== "node" && S.mode !== "cable") return mapClick(e);
@@ -373,7 +373,7 @@ function mapClick(e) {
   if (S.mode === "node") {
     const kind = $("#nodeKind").value;
     const n = { id: nextId(PREFIX[kind], 2), kind, lat, lon, pole: null, status: "proposed",
-                ports: kind === "FAT" ? D.rules.default_fat_ports : null, notes: "" };
+                ports: defaultPorts(kind), notes: "" };
     D.nodes.push(n); S.sel = { type: "node", id: n.id }; return changed();
   }
   if (S.mode === "cable" || S.mode === "boundary") {
@@ -392,11 +392,12 @@ function finishDraw() {
     return renderMap();
   }
   if (pts.length < 2) { toast("A cable needs at least 2 points"); return renderMap(); }
-  const cores = +$("#cableCores").value, kind = $("#cableKind").value;
+  const cores = +$("#cableCores").value, kind = $("#cableKind").value, t = S.st?.sector;
   const c = { id: nextId("C"), kind, cores, from_node: pts[0].node, to_node: pts[pts.length - 1].node,
-              install: "aerial", status: "proposed", path: pts, reserved: [], notes: "" };
+              install: t?.install || "aerial", status: "proposed", path: pts, reserved: [], notes: "" };
   S.D.cables.push(c); S.sel = { type: "cable", id: c.id };
-  toast(`Cable ${c.id} created (${cores}C ${kind})`);
+  toast(t && !t.fibre_tools ? `${t.line} ${c.id} created (${sizeText(cores)} ${t.lines[kind] || kind})`
+    : `Cable ${c.id} created (${cores}C ${kind})`);
   changed();
 }
 
@@ -421,7 +422,10 @@ const FIELDS = {
 
 function input(field, kind, value) {
   const v = value ?? "";
-  if (Array.isArray(kind)) return `<select data-f="${field}">${kind.map((o) => `<option ${String(o) === String(v) ? "selected" : ""}>${o}</option>`).join("")}</select>`;
+  if (Array.isArray(kind)) return `<select data-f="${field}">${kind.map((o) => {  // o: value, or [value, label]
+    const [val, label] = Array.isArray(o) ? o : [o, o];
+    return `<option value="${esc(val)}" ${String(val) === String(v) ? "selected" : ""}>${esc(label)}</option>`;
+  }).join("")}</select>`;
   if (kind === "textarea") return `<textarea data-f="${field}">${esc(v)}</textarea>`;
   if (kind === "fat" || kind === "pole") {
     const opts = kind === "fat" ? S.D.nodes.filter((n) => n.kind === "FAT").map((n) => n.id) : S.D.poles.map((p) => p.id);
@@ -433,15 +437,66 @@ function input(field, kind, value) {
   return `<input data-f="${field}" type="${kind === "text" ? "text" : "number"}" step="${kind === "int" ? 1 : "any"}" value="${esc(v)}">`;
 }
 
+// sector: line sizes in its unit (48C, DN160, 50 mm²) and equipment ratings (transformer kVA)
+function sizeText(n) {
+  const u = S.st?.sector?.size_unit || "C";
+  return u === "C" ? `${n}C` : u === "mm" ? `DN${n}` : `${n} ${u}`;
+}
+function defaultPorts(kind) {
+  const t = S.st?.sector;
+  if (t && !t.fibre_tools) return t.port_defaults?.[kind] ?? null;
+  return kind === "FAT" ? S.D.rules.default_fat_ports : null;
+}
+
+// the fields of a feature in the project's sector: fibre keeps FIELDS; other sectors rename them, offer their
+// sizes and ratings, and leave out fibre-only fields (core reservations, FAT load sharing)
+function sectorFields(type, obj) {
+  const t = S.st?.sector;
+  const named = (f) => f.replace("_", " ");
+  if (!t || t.fibre_tools) return FIELDS[type].map(([f, k]) => [f, k, named(f)]);
+  const out = [];
+  for (const [f, k] of FIELDS[type]) {
+    if (f === "reserved" || f === "extra_fats") continue;
+    if (f === "ports") {
+      const label = t.ports?.[obj.kind];
+      if (label) out.push([f, t.port_sizes?.[obj.kind] || k, label]);
+      continue;
+    }
+    if (f === "cores") { out.push([f, t.sizes, `${t.size} (${t.size_unit})`]); continue; }
+    if (f === "kind" && type === "node") { out.push([f, k.map((x) => [x, t.kinds[x] || x]), "kind"]); continue; }
+    if (f === "kind" && type === "cable") { out.push([f, k.map((x) => [x, t.lines[x] || x]), "kind"]); continue; }
+    const label = { fat: t.kinds.FAT, units: t.unit, type: `${t.support.toLowerCase()} type`,
+                    height_m: "height (m)", install: "installation" }[f];
+    out.push([f, k, label || named(f)]);
+  }
+  return out;
+}
+
+function detailInput(d, value) {
+  const v = value ?? "";
+  if (Array.isArray(d.kind)) return `<select data-d="${d.key}"><option value="">-</option>${d.kind.map((o) => `<option ${String(o) === String(v) ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+  if (d.kind === "number" || d.kind === "int") return `<input data-d="${d.key}" type="number" step="${d.kind === "int" ? 1 : "any"}" value="${esc(v)}">`;
+  return `<input data-d="${d.key}" type="text" maxlength="300" value="${esc(v)}">`;
+}
+
 function renderProps() {
   const el = $("#props");
   if (!S.D || !S.sel) { el.innerHTML = `<p class="muted">Select a feature to edit it.</p>${summaryHtml()}`; return; }
   const { type, id } = S.sel, obj = find(type, id);
   if (!obj) { S.sel = null; return renderProps(); }
+  const t = S.st?.sector, fibre = !t || t.fibre_tools;
   const issues = (S.st?.issues || []).filter((i) => i.ref === id);
-  let html = `<h3>${type === "node" ? obj.kind : type[0].toUpperCase() + type.slice(1)} ${esc(id)}</h3><div class="form">` +
-    FIELDS[type].map(([f, k]) => `<label>${f.replace("_", " ")}${input(f, k, obj[f])}</label>`).join("") + `</div>`;
-  if (type === "node") {
+  const title = fibre ? (type === "node" ? obj.kind : type[0].toUpperCase() + type.slice(1))
+    : type === "node" ? t.kinds[obj.kind] || obj.kind
+    : { pole: t.support, home: t.premise.split("/")[0].trim(), cable: t.lines[obj.kind] || t.line }[type];
+  let html = `<h3>${esc(title)} ${esc(id)}</h3><div class="form">` +
+    sectorFields(type, obj).map(([f, k, label]) => `<label>${esc(label)}${input(f, k, obj[f])}</label>`).join("") + `</div>`;
+  const dets = fibre ? [] : t.details?.[type] || [];
+  if (dets.length) {
+    html += `<h4>${esc(t.label)} details</h4><div class="form">` + dets.map((d) =>
+      `<label>${esc(d.label)}${d.unit ? ` (${esc(d.unit)})` : ""}${detailInput(d, (obj.details || {})[d.key])}</label>`).join("") + `</div>`;
+  }
+  if (type === "node" && fibre) {
     const sp = S.D.splitters.filter((s) => s.node === id);
     html += `<p class="muted">Splitters: ${sp.map((s) => `${esc(s.id)} 1x${s.outputs}`).join(", ") || "none"} — edit in the Splicing tab.</p>`;
     if (obj.kind === "FAT") {
@@ -452,7 +507,7 @@ function renderProps() {
   if (type === "cable") {
     let len = 0;
     obj.path.forEach((v, i) => { if (i) len += hav(obj.path[i - 1].lat, obj.path[i - 1].lon, v.lat, v.lon); });
-    html += `<p>Route length: <b>${fmt(len, 1)} m</b> (design length with slack is in the Schedules tab)</p>
+    html += `<p>Route length: <b>${fmt(len, 1)} m</b> (design length${fibre ? " with slack" : ""} is in the Schedules tab)</p>
       <p>From <b>${esc(obj.from_node || "-")}</b> to <b>${esc(obj.to_node || "-")}</b></p>
       <table><tr><th>#</th><th>Vertex</th><th title="The span after this point crosses a road">Road X</th></tr>` +
       obj.path.map((v, i) => `<tr><td>${i + 1}</td><td>${esc(v.node || v.pole || `${v.lat.toFixed(5)}, ${v.lon.toFixed(5)}`)}</td>
@@ -463,7 +518,19 @@ function renderProps() {
   el.innerHTML = html;
   if (focused) $(`[data-f="${focused}"]`, el)?.focus();
   $$("[data-f]", el).forEach((inp) => inp.addEventListener("change", () => setField(type, obj, inp.dataset.f, inp.value)));
+  $$("[data-d]", el).forEach((inp) => inp.addEventListener("change", () => setDetail(obj, dets.find((d) => d.key === inp.dataset.d), inp.value)));
   $$("[data-x]", el).forEach((cb) => cb.addEventListener("change", () => { obj.path[+cb.dataset.x].crossing = cb.checked; changed(); }));
+}
+
+function setDetail(obj, d, raw) {
+  obj.details = obj.details || {};
+  let v = raw.trim();
+  if (v && (d.kind === "number" || d.kind === "int")) {
+    v = d.kind === "int" ? parseInt(v, 10) : +v;
+    if (isNaN(v)) { toast(`${d.label} must be a number`); return renderProps(); }
+  }
+  if (v === "") delete obj.details[d.key]; else obj.details[d.key] = v;
+  changed();
 }
 
 function setField(type, obj, f, raw) {
@@ -498,11 +565,12 @@ function setField(type, obj, f, raw) {
 
 function summaryHtml() {
   const s = S.st?.summary; if (!s) return "";
+  const t = S.st?.sector, fibre = !t || t.fibre_tools;
   return `<h4>Project summary</h4><table>
-    <tr><td>Poles</td><td class="num">${s.poles} (${s.poles_new} new)</td></tr>
-    <tr><td>Premises / homepasses</td><td class="num">${s.homes} / ${s.homepasses}</td></tr>
+    <tr><td>${fibre ? "Poles" : esc(t.support) + "s"}</td><td class="num">${s.poles} (${s.poles_new} new)</td></tr>
+    <tr><td>Premises / ${fibre ? "homepasses" : esc(t.unit)}</td><td class="num">${s.homes} / ${s.homepasses}</td></tr>
     <tr><td>Unserved premises</td><td class="num">${s.homes_unassigned}</td></tr>
-    ${Object.entries(s.nodes).filter(([, v]) => v).map(([k, v]) => `<tr><td>${k}</td><td class="num">${v}</td></tr>`).join("")}
+    ${Object.entries(s.nodes).filter(([, v]) => v).map(([k, v]) => `<tr><td>${esc(fibre ? k : t.kinds[k] || k)}</td><td class="num">${v}</td></tr>`).join("")}
     ${Object.entries(s.cable_m).map(([k, v]) => `<tr><td>${k}</td><td class="num">${fmt(v)} m</td></tr>`).join("")}
     <tr><td><b>BOQ total</b></td><td class="num"><b>${esc(s.currency)} ${fmt(s.boq_total, 2)}</b></td></tr></table>`;
 }
@@ -534,7 +602,7 @@ $$("#tabs button").forEach((b) => b.addEventListener("click", async () => {
   await renderActiveTab(true);
 }));
 
-function renderAll() { renderHeader(); renderMap(); renderProps(); renderActiveTab(true); }
+function renderAll() { if (typeof applySector === "function") applySector(); renderHeader(); renderMap(); renderProps(); renderActiveTab(true); }
 
 async function renderActiveTab(full) {
   const t = activeTab();
@@ -800,6 +868,31 @@ async function renderSchedules() {
   await flush();
   const c = await fresh("calc", () => api(`/api/projects/${S.pid}/calc`));
   if (!c) return;
+  const t = S.st?.sector;
+  if (t && !t.fibre_tools) renderSectorSchedules(c, t); else renderFibreSchedules(c);
+  $$("#schPoles tr[data-id]").forEach((tr) => tr.addEventListener("click", () => goTo(tr.dataset.id)));
+  $("#schBom").innerHTML = `<table><tr><th>Code</th><th>Description</th><th>Unit</th><th class="num">Calc.</th><th class="num">Adj.</th><th class="num">Qty</th></tr>` +
+    c.bom.map((l) => `<tr><td>${esc(l.code)}</td><td>${esc(l.description)}</td><td>${esc(l.unit)}</td><td class="num">${fmt(l.calculated)}</td><td class="num">${l.adjustment ? fmt(l.adjustment) : ""}</td><td class="num"><b>${fmt(l.qty)}</b></td></tr>`).join("") + `</table>`;
+  renderBoqAfterSchedules(c);
+}
+
+// other sectors: lines in the sector's sizes (no slack loops), and the support schedule (manholes, marker posts,
+// poles, lighting columns) with the sector's hardware, equipment and recorded details
+function renderSectorSchedules(c, t) {
+  const overhead = t.install === "aerial";
+  $("#schCables").innerHTML = `<p class="muted">Proposed ${esc(t.line.toLowerCase())}s only. Length = measured + extra %${overhead ? " + end allowance + sag per point" : ""}, rounded up.</p>
+    <table><tr><th>${esc(t.line)}</th><th>Type</th><th>${esc(t.size)}</th><th class="num">Measured m</th><th class="num">Extra m</th>${overhead ? `<th class="num">End m</th><th class="num">Sag m</th>` : ""}<th class="num">Total m</th><th class="num">Road X</th></tr>` +
+    c.cables.map((x) => `<tr><td>${esc(x.cable)}</td><td>${esc(t.lines[x.kind] || x.kind)}</td><td>${sizeText(x.cores)}</td><td class="num">${fmt(x.route_m, 1)}</td><td class="num">${fmt(x.extra_m, 1)}</td>${overhead ? `<td class="num">${fmt(x.end_m)}</td><td class="num">${fmt(x.sag_m, 1)}</td>` : ""}<td class="num"><b>${fmt(x.total_m)}</b></td><td class="num">${x.crossings}</td></tr>`).join("") + `</table>`;
+  const P = c.poles, cols = t.schedule, sum = (k) => P.reduce((a, p) => a + (typeof p[k] === "number" ? p[k] : p[k].length), 0);
+  const fields = t.details?.pole || [];
+  const det = (id) => { const d = (find("pole", id) || {}).details || {};
+    return fields.filter((f) => d[f.key] != null).map((f) => `${f.label}: ${d[f.key]}${f.unit ? " " + f.unit : ""}`).join("; "); };
+  $("#schPoles").innerHTML = `<table><tr><th>${esc(t.support)} ID</th><th>Location (Lat, Long)</th><th class="num">${esc(t.line)}s</th>${cols.map(([, h]) => `<th class="num">${esc(h)}</th>`).join("")}${fields.length ? "<th>Details</th>" : ""}<th>Notes</th></tr>` +
+    P.map((p) => `<tr class="click" data-id="${esc(p.pole)}"><td>${esc(p.pole)}</td><td>${p.lat != null ? p.lat.toFixed(5) + ", " + p.lon.toFixed(5) : "-"}</td><td class="num">${p.cables.length}</td>${cols.map(([k]) => `<td class="num">${p[k]}</td>`).join("")}${fields.length ? `<td>${esc(det(p.pole))}</td>` : ""}<td>${esc(p.notes.join("; "))}</td></tr>`).join("") +
+    `<tr class="total"><td>Total</td><td></td><td class="num">${sum("cables")}</td>${cols.map(([k]) => `<td class="num">${sum(k)}</td>`).join("")}${fields.length ? "<td></td>" : ""}<td></td></tr></table>`;
+}
+
+function renderFibreSchedules(c) {
   $("#schCables").innerHTML = `<p class="muted">Proposed cables only. Length = measured + extra % + end allowance + sag per point (+ risers), rounded up; then slack loops at equipment.</p>
     <table><tr><th>Cable</th><th>Type</th><th>Cores</th><th class="num">Measured m</th><th class="num">Extra m</th><th class="num">End m</th><th class="num">Sag m</th><th class="num">Rounded m</th><th class="num">Slack loops</th><th class="num">Slack m</th><th class="num">Total m</th><th class="num">Road X</th></tr>` +
     c.cables.map((x) => `<tr><td>${esc(x.cable)}</td><td>${x.kind}</td><td>${x.cores}</td><td class="num">${fmt(x.route_m, 1)}</td><td class="num">${fmt(x.extra_m, 1)}</td><td class="num">${fmt(x.end_m)}</td><td class="num">${fmt(x.sag_m, 1)}</td><td class="num">${fmt(x.rounded_m)}</td><td class="num">${x.slack_loops}</td><td class="num">${fmt(x.slack_m)}</td><td class="num"><b>${fmt(x.total_m)}</b></td><td class="num">${x.crossings}</td></tr>`).join("") + `</table>`;
@@ -807,9 +900,9 @@ async function renderSchedules() {
   $("#schPoles").innerHTML = `<table><tr><th>Pole ID</th><th>Location (Lat, Long)</th><th class="num">Cables</th><th class="num">Tension Clamps</th><th class="num">UPB</th><th class="num">J-Hooks</th><th class="num">Ext. Arm</th><th class="num">JB</th><th class="num">Enclosure</th><th class="num">FAT</th><th>Notes</th></tr>` +
     P.map((p) => `<tr class="click" data-id="${esc(p.pole)}"><td>${esc(p.pole)}</td><td>${p.lat != null ? p.lat.toFixed(5) + ", " + p.lon.toFixed(5) : "-"}</td><td class="num">${p.cables.length}</td><td class="num">${p.tension}</td><td class="num">${p.upb}</td><td class="num">${p.jhooks}</td><td class="num">${p.ext_arms}</td><td class="num">${p.jb}</td><td class="num">${p.enclosures}</td><td class="num">${p.fats}</td><td>${esc(p.notes.join("; "))}</td></tr>`).join("") +
     `<tr class="total"><td>Total</td><td></td><td class="num">${sum("cables")}</td><td class="num">${sum("tension")}</td><td class="num">${sum("upb")}</td><td class="num">${sum("jhooks")}</td><td class="num">${sum("ext_arms")}</td><td class="num">${sum("jb")}</td><td class="num">${sum("enclosures")}</td><td class="num">${sum("fats")}</td><td></td></tr></table>`;
-  $$("#schPoles tr[data-id]").forEach((tr) => tr.addEventListener("click", () => goTo(tr.dataset.id)));
-  $("#schBom").innerHTML = `<table><tr><th>Code</th><th>Description</th><th>Unit</th><th class="num">Calc.</th><th class="num">Adj.</th><th class="num">Qty</th></tr>` +
-    c.bom.map((l) => `<tr><td>${esc(l.code)}</td><td>${esc(l.description)}</td><td>${esc(l.unit)}</td><td class="num">${fmt(l.calculated)}</td><td class="num">${l.adjustment ? fmt(l.adjustment) : ""}</td><td class="num"><b>${fmt(l.qty)}</b></td></tr>`).join("") + `</table>`;
+}
+
+function renderBoqAfterSchedules(c) {
   $("#schBoq").innerHTML = `<table><tr><th>Description</th><th>Unit</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Total (${esc(c.currency)})</th></tr>` +
     c.bom.map((l) => `<tr><td>${esc(l.description)}</td><td>${esc(l.unit)}</td><td class="num">${fmt(l.qty)}</td><td class="num">${l.rate == null ? "n/a" : fmt(l.rate, 2)}</td><td class="num">${l.total == null ? "n/a" : fmt(l.total, 2)}</td></tr>`).join("") +
     `<tr class="total"><td>Total</td><td></td><td></td><td></td><td class="num">${fmt(c.boq_total, 2)}</td></tr></table>`;
@@ -936,7 +1029,8 @@ $("#btnAssign").onclick = async () => {
 };
 $("#projectSelect").onchange = (e) => e.target.value && openProject(e.target.value);
 $("#newProject").onclick = async () => {
-  const name = prompt("Project name", "New FTTH project"); if (!name) return;
+  // left empty, the server names it after the company's sector ("New water supply project")
+  const name = prompt("Project name (leave empty for a default name)", ""); if (name === null) return;
   await flush(); const st = await api("/api/projects", jsonBody({ name })); await loadProjects(st.id);
 };
 $("#newSample").onclick = async () => { await flush(); const st = await api("/api/projects", jsonBody({ sample: true })); await loadProjects(st.id); };

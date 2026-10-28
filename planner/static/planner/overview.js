@@ -43,11 +43,15 @@ function renderSteps() {
   const set = (n, text, cls = "") => { const el = $("#st" + n); el.textContent = text; el.className = "sstat " + cls; };
   const surveyErr = st.issues.filter((i) => i.severity === "error" && SURVEY_CODES.includes(i.code)).length;
   const surveyed = D.poles.length + D.homes.length;
-  set(1, surveyed ? `${s.poles} poles · ${s.homes} premises · ${s.homepasses} HPs` : "No survey data yet", surveyed ? "ok" : "warn");
+  const sec = st.sector, fib = !sec || sec.fibre_tools;  // the step texts in the sector's words
+  const w = fib ? { poles: "poles", hps: "HPs", lines: "cables", fats: "FATs" }
+    : { poles: sec.support.toLowerCase() + "s", hps: sec.unit, lines: sec.line.toLowerCase() + "s",
+        fats: sec.kinds.FAT.split("/")[0].trim().toLowerCase() + "s" };
+  set(1, surveyed ? `${s.poles} ${w.poles} · ${s.homes} premises · ${s.homepasses} ${w.hps}` : "No survey data yet", surveyed ? "ok" : "warn");
   set(2, surveyErr ? `${surveyErr} survey error(s) to fix` : D.info.survey_status === "approved" ? "Survey approved ✓"
     : surveyed ? "Clean - ready to approve" : "Waiting for survey data", surveyErr ? "err" : D.info.survey_status === "approved" ? "ok" : "warn");
   const prop = D.cables.filter((x) => x.status === "proposed").length;
-  set(3, prop ? `${prop} cables · ${s.nodes.FAT} FATs · ${s.homes_unassigned} unserved` : "No proposed network yet",
+  set(3, prop ? `${prop} ${w.lines} · ${s.nodes.FAT} ${w.fats} · ${s.homes_unassigned} unserved` : "No proposed network yet",
     prop ? (s.homes_unassigned ? "warn" : "ok") : "");
   set(4, `${D.materials.length} items · ${s.currency} ${fmt(s.boq_total)}`, D.materials.length ? "ok" : "warn");
   const o = st.outputs || {}, lld = o.lld;
@@ -63,8 +67,15 @@ function renderSteps() {
 // ---------------------------------------------------------------------------
 // Overview
 // ---------------------------------------------------------------------------
-const LEGEND = [["main", "Main cable (48C)", ""], ["spur", "Spur cable (12C)", ""], ["drop", "Drop", ""], ["pole", "Pole", "pt"],
-  ["home", "Home / MDU", "sq"], ["ENCLOSURE", "Splice enclosure", "sq"], ["JB", "JB", "sq"], ["FAT", "FAT", "sq"], ["PON", "PON", "sq"]];
+// map legend in the project's sector terms (fibre: main cable, FAT...; water: trunk main, meter...)
+function legend() {
+  const t = S.st?.sector;
+  if (!t) return [["main", "Main cable (48C)", ""], ["spur", "Spur cable (12C)", ""], ["drop", "Drop", ""], ["pole", "Pole", "pt"],
+    ["home", "Home / MDU", "sq"], ["ENCLOSURE", "Splice enclosure", "sq"], ["JB", "JB", "sq"], ["FAT", "FAT", "sq"], ["PON", "PON", "sq"]];
+  return [["main", t.lines.main, ""], ["spur", t.lines.spur, ""], ["drop", t.lines.drop, ""], ["pole", t.support, "pt"],
+    ["home", t.premise, "sq"], ["ENCLOSURE", t.kinds.ENCLOSURE, "sq"], ["JB", t.kinds.JB, "sq"], ["FAT", t.kinds.FAT, "sq"],
+    ["PON", t.kinds.PON, "sq"]];
+}
 let ovMap = null, ovLayer = null;
 
 async function renderOverview() {
@@ -73,7 +84,7 @@ async function renderOverview() {
   drawLld($("#ovLld"), false);
   renderOvReport();
   renderFileIcons();
-  $("#ovLegend").innerHTML = LEGEND.map(([k, t, cls]) => `<span><i class="${cls}" style="background:${COL[k]}"></i>${t}</span>`).join("") +
+  $("#ovLegend").innerHTML = legend().map(([k, t, cls]) => `<span><i class="${cls}" style="background:${COL[k]}"></i>${t}</span>`).join("") +
     `<span><i style="background:#9aa5b1"></i>Existing</span>`;
   await flush();
   const [c, sp] = await Promise.all([fresh("ovcalc", () => api(`/api/projects/${S.pid}/calc`)),
@@ -127,7 +138,16 @@ function tableHtml(head, rows, totalRow, more) {
 function renderOvTables(c) {
   const P = c.poles, N = 8, sum = (k) => P.reduce((a, p) => a + (Array.isArray(p[k]) ? p[k].length : p[k]), 0);
   const H = (t, num) => ({ t, num });
-  $("#ovPoles").innerHTML = P.length ? tableHtml(
+  const t = S.st?.sector;
+  if (t && !t.fibre_tools) {  // the sector's support schedule: its hardware and equipment columns
+    const cols = t.schedule;
+    $("#ovPoles").innerHTML = P.length ? tableHtml(
+      [H(`${esc(t.support)} ID`), H("Location (Lat, Long)"), H(`${esc(t.line)}s`, 1), ...cols.map(([, h]) => H(esc(h), 1)), H("Notes")],
+      P.slice(0, N).map((p) => [esc(p.pole), p.lat != null ? `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}` : "-", p.cables.length,
+                                ...cols.map(([k]) => p[k]), esc(p.notes.join("; "))]),
+      ["Total", "", sum("cables"), ...cols.map(([k]) => sum(k)), "-"], P.length - N)
+      : `<p class="muted" style="padding:10px">No ${esc(t.support.toLowerCase())}s on the proposed route yet.</p>`;
+  } else $("#ovPoles").innerHTML = P.length ? tableHtml(
     [H("Pole ID"), H("Location (Lat, Long)"), H("Cables", 1), H("J-Hook", 1), H("Tension", 1), H("UPB", 1), H("JB", 1), H("Encl.", 1), H("Notes")],
     P.slice(0, N).map((p) => [esc(p.pole), p.lat != null ? `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}` : "-", p.cables.length, p.jhooks,
                               p.tension, p.upb, p.jb, p.enclosures, esc(p.notes.join("; "))]),
@@ -147,7 +167,8 @@ function renderOvReport() {
   const secs = [["Introduction", i.introduction], ["Survey findings", i.findings], ["Proposed solution", i.proposed_solution],
     ["Cable routing & installation", D.cables.some((c) => c.status === "proposed")], ["Equipment locations", D.nodes.length],
     ["Special requirements", i.special_requirements], ["Conclusion & recommendations", i.recommendations]];
-  $("#ovReport").innerHTML = `<h4>FTTH SURVEY REPORT</h4><div class="sub">${esc(i.area || i.name)}</div>` +
+  const title = S.st?.sector && !S.st.sector.fibre_tools ? S.st.sector.report_title : "FTTH Survey Report";
+  $("#ovReport").innerHTML = `<h4>${esc(title.toUpperCase())}</h4><div class="sub">${esc(i.area || i.name)}</div>` +
     (photo ? `<img src="/api/projects/${S.pid}/photos/${esc(photo.file)}" alt="${esc(photo.caption)}">` : "") +
     `<ol>${secs.map(([t, v]) => `<li class="${v ? "" : "no"}">${t}</li>`).join("")}</ol>` +
     `<p class="muted">Photos: ${D.photos.length} · Prepared by: ${esc(i.prepared_by || "-")} · Date: ${esc(i.survey_date || "-")}</p>`;
@@ -160,7 +181,11 @@ const FILES = [["HLD", "KML", "hld.kmz", "#2e7d32", "hld"], ["LLD", "DXF", "lld.
 function renderFileIcons() {
   const o = S.st?.outputs || {};
   let fresh = 0;
-  $("#fileIcons").innerHTML = FILES.map(([t, tag, spec, col, k]) => {
+  const t = S.st?.sector;
+  const files = t && !t.fibre_tools  // other sectors: no splicing diagram; the pole summary is their schedule
+    ? FILES.filter((f) => f[4] !== "splicing").map((f) => f[4] === "pole_summary" ? [`${t.support} Schedule`, ...f.slice(1)] : f)
+    : FILES;
+  $("#fileIcons").innerHTML = files.map(([t, tag, spec, col, k]) => {
     const x = o[k], state = !x?.last ? "" : x.stale ? "stale" : "fresh";
     const tip = !x?.last ? "Not generated" : x.stale ? "Needs regenerating" : "Up to date";
     if (state === "fresh") fresh++;
@@ -168,7 +193,7 @@ function renderFileIcons() {
       <span class="doc"><span class="tag" style="background:${col}">${tag}</span></span>
       <span class="fname">${esc(t)}</span><span class="fstate"><span class="dot ${state}"></span>${tip}</span></a>`;
   }).join("");
-  $("#fileProgress").textContent = `${fresh} of ${FILES.length} up to date`;
+  $("#fileProgress").textContent = `${fresh} of ${files.length} up to date`;
 }
 $("#cdbPackage").addEventListener("click", () => $("#btnPackage").click());
 
@@ -279,14 +304,17 @@ function drawLld(box, big) {
   // legend and title block stay the same size at any zoom
   const leg = document.createElement("div");
   leg.className = "lldleg";
-  leg.innerHTML = `<b>LEGEND</b>` + [["#ff2a2a", "48C main cable", "l"], ["#ffd60a", "12C spur cable", "l"], ["#7d8a96", "Existing cable", "l"],
-    ["#2f80ff", "Pole", "c"], ["#ff2a2a", "FAT", "t"], ["#c77dff", "JB", "d"], ["#ff9f1c", "Splice enclosure", "s"], ["#ff4fd8", "PON", "s"],
-    ["#e040fb", "Building", "b"]].map(([c, t, k]) => `<div><i class="${k}" style="--c:${c}"></i>${t}</div>`).join("");
+  const t = S.st?.sector, fibre = !t || t.fibre_tools;
+  leg.innerHTML = `<b>LEGEND</b>` + [["#ff2a2a", fibre ? "48C main cable" : t.lines.main, "l"], ["#ffd60a", fibre ? "12C spur cable" : t.lines.spur, "l"],
+    ["#7d8a96", fibre ? "Existing cable" : `Existing ${t.line.toLowerCase()}`, "l"],
+    ["#2f80ff", fibre ? "Pole" : t.support, "c"], ["#ff2a2a", fibre ? "FAT" : t.kinds.FAT, "t"], ["#c77dff", fibre ? "JB" : t.kinds.JB, "d"],
+    ["#ff9f1c", fibre ? "Splice enclosure" : t.kinds.ENCLOSURE, "s"], ["#ff4fd8", fibre ? "PON" : t.kinds.PON, "s"],
+    ["#e040fb", fibre ? "Building" : t.premise, "b"]].map(([c, t, k]) => `<div><i class="${k}" style="--c:${c}"></i>${t}</div>`).join("");
   box.appendChild(leg);
   const tb = document.createElement("div");
   tb.className = "lldtb";
   const i = D.info;
-  tb.innerHTML = `<b>FTTH LLD</b><div>${esc((i.area || i.name || "").toUpperCase())}</div><div>${esc(i.company || "")} ${esc(i.drawing_no || "")}</div>
+  tb.innerHTML = `<b>${fibre ? "FTTH LLD" : "DETAILED DESIGN"}</b><div>${esc((i.area || i.name || "").toUpperCase())}</div><div>${esc(i.company || "")} ${esc(i.drawing_no || "")}</div>
     <div>REV ${S.st?.revision ?? 0} · ${esc(i.design_status.toUpperCase())}</div><div class="cad">AutoCAD · DXF</div>`;
   box.appendChild(tb);
   if (big) { CAD.proj = pr; cadTools(svg); }

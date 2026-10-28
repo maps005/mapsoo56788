@@ -109,7 +109,7 @@ def build_dxf(d: Design, st: Stamp) -> bytes:
         x0, y0, w = min(xs), min(ys) - 40, max(60.0, max(xs) - min(xs))
         msp.add_lwpolyline([(x0, y0), (x0 + w, y0), (x0 + w, y0 + 30), (x0, y0 + 30)], close=True,
                            dxfattribs={"layer": "TITLE"})
-        for i, t in enumerate([f"FTTH LLD - {d.info.name}", f"{d.info.area}",
+        for i, t in enumerate([f"{'FTTH LLD' if d.info.sector == 'fibre' else 'DETAILED DESIGN'} - {d.info.name}", f"{d.info.area}",
                                f"Rev {st.revision}  Status {st.status.upper()}  Data {st.hash}  Date {st.date}",
                                f"Units: metres, local plane origin lat {proj.lat0:.6f} lon {proj.lon0:.6f} (WGS84)"]):
             label(x0 + 2, y0 + 24 - i * 6, t, "TITLE", 3 if i == 0 else 2)

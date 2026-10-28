@@ -174,6 +174,9 @@ def test_admin_uses_the_site_theme():
     c = Client()
     c.login(username="root", password="pw-12345-long")
     r = c.get("/admin/")
-    assert r.status_code == 200 and b"planner/admin-theme.css" in r.content and b"ARCHPLANNER" in r.content
+    assert r.status_code == 200 and b"planner/admin-theme.css" in r.content and b"ARCH<b>PLANNER</b>" in r.content
+    assert b"Welcome back" in r.content and b"ap-kpis" in r.content and b"Recently updated projects" in r.content
+    assert b"admin/css/dark_mode.css" not in r.content  # one light theme, like the site
+    assert Client().get("/admin/login/?next=/admin/planner/").url == "/accounts/login/?next=%2Fadmin%2Fplanner%2F"
     assert c.get("/admin/planner/company/").status_code == 200
     assert c.get("/admin/planner/comment/").status_code == 200

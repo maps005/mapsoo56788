@@ -27,7 +27,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 from pydantic import ValidationError
 
-from ftth import calc, importers, splicing, standards, validate
+from ftth import calc, importers, sectors, splicing, standards, validate
 from ftth.exporters import package
 from ftth.exporters.common import stamp
 from ftth.model import DEFAULT_MATERIALS, Design, Photo, ProjectInfo
@@ -133,6 +133,28 @@ def apply_standard(request, pid):
 
 
 @api("GET")
+def list_sectors(request):
+    return JsonResponse([{"key": k, "label": v["label"]} for k, v in sectors.SECTORS.items()], safe=False)
+
+
+@api("POST")
+def apply_sector(request, pid):
+    """Switch the project to a sector (names, rules and - unless keep_materials - its material catalogue)."""
+    body = _body(request)
+    key = body.get("sector")
+    if key not in sectors.SECTORS:
+        raise ApiError(400, f"sector must be one of {', '.join(sectors.SECTORS)}")
+
+    def run(d):
+        if d.info.design_status == "approved":
+            raise ApiError(409, "The design is approved: return it to draft before changing its sector")
+        sectors.apply(d, key, materials=not body.get("keep_materials"))
+        return {"sector": key, "label": sectors.SECTORS[key]["label"]}
+    st, res = _operate(request, pid, run)
+    return JsonResponse(st | {"result": res})
+
+
+@api("GET")
 def list_standards(request):
     return JsonResponse([{"key": k, "label": v["label"], "design_style": v["design_style"]}
                          for k, v in standards.STANDARDS.items()], safe=False)
@@ -181,7 +203,7 @@ def company_dict(c: Company | None) -> dict | None:
     if c is None:
         return None
     return {"id": c.id, "name": c.name, "logo": f"/company/{c.id}/logo" if c.logo else "",
-            "design_standard": c.design_standard}
+            "design_standard": c.design_standard, "sector": c.sector}
 
 
 def _person(u, access: str) -> dict:
@@ -211,6 +233,7 @@ def _state(request, p: Project, d: Design | None = None) -> dict:
         "issues": issues, "counts": validate.counts(issues), "summary": calc.summary(d),
         "owner": p.owner.get_username(), "members": [u.get_username() for u in p.members.all()],
         "people": _people(p),
+        "sector": sectors.profile(d.info.sector),
         "is_owner": p.owner_id == request.user.id or request.user.is_superuser,
         "can_edit": p.can_edit(request.user), "can_approve": p.can_approve(request.user),
         "can_manage": p.can_manage(request.user), "company": company_dict(p.company),
@@ -321,6 +344,10 @@ def projects(request):
         d.info.currency = company.currency or d.info.currency
         if company.design_standard in standards.STANDARDS and not body.get("sample"):
             standards.apply(d, company.design_standard)  # the company's design style and rules
+        if company.sector in sectors.SECTORS and company.sector != sectors.FIBRE and not body.get("sample"):
+            sectors.apply(d, company.sector)  # names, materials and rules of the company's sector
+            if not _text(body, "name", 200):
+                d.info.name = f"New {sectors.SECTORS[company.sector]['label'].lower()} project"
     p = Project(owner=request.user, company=company, data={})
     return JsonResponse(_save(request, p, d))
 

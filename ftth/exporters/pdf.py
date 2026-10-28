@@ -17,7 +17,7 @@ from reportlab.platypus import (BaseDocTemplate, CondPageBreak, Frame, HRFlowabl
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 from reportlab.platypus.tableofcontents import TableOfContents
 
-from .. import calc, splicing
+from .. import calc, sectors, splicing
 from ..geo import LocalProjection, haversine, valid_coord
 from ..model import Design
 from . import report
@@ -376,7 +376,31 @@ def _head(title: str, d: Design):
             Spacer(1, 6)]
 
 
+def _sector_schedule_pdf(d: Design, st: Stamp) -> bytes:
+    """Other sectors: support schedule with the sector's hardware and equipment columns and recorded details."""
+    sec, rows = sectors.get(d.info.sector), calc.pole_summary(d)
+    cols = sectors.schedule_columns(d.info.sector)
+    fields = sec["details"].get("pole", [])
+
+    def det(pid):
+        x = d.pole(pid).details if d.pole(pid) else {}
+        return "; ".join(f"{f['label']}: {x[f['key']]}{' ' + f['unit'] if f['unit'] else ''}" for f in fields if f["key"] in x)
+    data = [[p.pole, f"{p.lat:.5f}, {p.lon:.5f}" if p.lat is not None and p.lon is not None else "-", len(p.cables)] +
+            [getattr(p, k) for k, _ in cols] +
+            [Paragraph(markup("; ".join(x for x in (det(p.pole), "; ".join(p.notes)) if x)), STYLES["BodyText"])]
+            for p in rows]
+    tot = ["Total", "", sum(len(p.cables) for p in rows)] + [sum(getattr(p, k) for p in rows) for k, _ in cols] + [""]
+    title = f"{sec['support']} Schedule"
+    widths = [24 * mm, 32 * mm, 14 * mm] + [20 * mm] * len(cols)
+    widths.append(max(267 * mm - sum(widths), 50 * mm))
+    story = _head(title, d) + [_table([f"{sec['support']} ID", "Location (Lat, Long)", f"{sec['line']}s"] +
+                                      [h for _, h in cols] + ["Details and notes"], data + [tot], widths, total_row=True)]
+    return _doc(story, st, title, landscape(A4))
+
+
 def pole_summary_pdf(d: Design, st: Stamp) -> bytes:
+    if not sectors.fibre_tools(d):
+        return _sector_schedule_pdf(d, st)
     rows = calc.pole_summary(d)
     data = [[p.pole, f"{p.lat:.5f}, {p.lon:.5f}" if p.lat is not None and p.lon is not None else "-", len(p.cables),
              p.tension, p.upb, p.jhooks, p.ext_arms, p.jb, p.enclosures, p.fats,
@@ -560,7 +584,8 @@ RPT = {
 class _ReportDoc(BaseDocTemplate):
     """A4 report: a cover page without the running header, contents with page numbers, branded pages after."""
 
-    def __init__(self, buf, st: Stamp, title: str):
+    def __init__(self, buf, st: Stamp, title: str, title_text: str = "FTTH Survey and Design Report"):
+        self.title_text = title_text
         super().__init__(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=26 * mm,
                          bottomMargin=18 * mm, title=title, author=st.brand.name)
         self.st = st
@@ -589,7 +614,7 @@ class _ReportDoc(BaseDocTemplate):
         cv.line(self.leftMargin, 13 * mm, A4[0] - self.rightMargin, 13 * mm)
         cv.setFont("Helvetica", 7)
         cv.setFillColor(colors.grey)
-        cv.drawString(self.leftMargin, 9 * mm, f"{self.st.project[:70]}  |  FTTH Survey and Design Report  |  "
+        cv.drawString(self.leftMargin, 9 * mm, f"{self.st.project[:70]}  |  {self.title_text}  |  "
                                               f"Rev {self.st.revision} ({self.st.status.replace('_', ' ')})")
         cv.drawRightString(A4[0] - self.rightMargin, 9 * mm, f"Page {doc.page}")
         cv.restoreState()
@@ -630,9 +655,9 @@ def _cover(d: Design, st: Stamp, width: float) -> list:
     if size:
         out.append(Image(str(st.brand.logo), size[0], size[1], hAlign="LEFT"))
     out += [Spacer(1, 22 * mm),
-            Paragraph('<font color="#b8862b"><b>FTTH SURVEY AND DESIGN REPORT</b></font>',
+            Paragraph(f'<font color="#b8862b"><b>{markup(sectors.get(i.sector)["report_title"].upper())}</b></font>',
                       ParagraphStyle("ck", fontName="Helvetica", fontSize=10, leading=14, spaceAfter=8)),
-            Paragraph(markup(i.name or "FTTH project"),
+            Paragraph(markup(i.name or "Project"),
                       ParagraphStyle("ct", fontName="Helvetica-Bold", fontSize=24, leading=29, textColor=C(NAVY))),
             Spacer(1, 6),
             Paragraph(markup(" | ".join(x for x in (i.area, i.client, i.cluster) if x)),
@@ -655,7 +680,8 @@ def _h1(text: str) -> list:
 
 def report_pdf(d: Design, st: Stamp, photo_dir: Path | None) -> bytes:
     buf = io.BytesIO()
-    doc = _ReportDoc(buf, st, f"Survey and Design Report - {d.info.name}")
+    doc = _ReportDoc(buf, st, f"{sectors.get(d.info.sector)['report_title']} - {d.info.name}",
+                     sectors.get(d.info.sector)["report_title"])
     width = doc.width
     toc = TableOfContents()
     toc.levelStyles = [RPT["toc"]]

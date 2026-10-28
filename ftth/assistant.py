@@ -31,6 +31,24 @@ SYSTEM = (
 )
 
 
+def _system(d: Design) -> str:
+    """The instructions, in the project's sector (the design model is shared: equipment kinds are renamed)."""
+    from . import sectors
+    p = sectors.get(d.info.sector)
+    if p["fibre_tools"]:
+        return SYSTEM
+    names = "; ".join(f"{k} = {v}" for k, v in p["kinds"].items())
+    return (f"You are ArchPlanner's assistant for {p['network']} planning ({p['label']}) in Kenya. You help planners "
+            f"with survey data, network layout and detailed design, {p['line'].lower()} routes and sizes, materials, "
+            f"BOM/BOQ and QA before approval. In the project data, equipment kinds use generic codes: {names}; "
+            f"'cables' are {p['line'].lower()}s (their 'cores' value is the {p['size'].lower()} in {p['size_unit']}), "
+            f"'poles' are {p['support'].lower()}s and 'homepasses' are {p['unit']}. Always use the sector's names in "
+            "your answers. Use the project summary as the facts about the open project; say so when something is not "
+            "in it. Point to the app's tools (Survey & validation, Network map, Materials & rules, Detailed drawing, "
+            "Generate deliverables) when they solve the question. Be concise, use short lists and give numbers with "
+            "units. You cannot change the design yourself.")
+
+
 @dataclass
 class Config:
     key: str = ""
@@ -161,7 +179,7 @@ def chat(d: Design, messages, cfg: Config, attachment: str | None = None) -> str
     if attachment:  # the file goes with the latest question
         convo[-1]["content"] += "\n\n" + attachment
     body = {"model": cfg.model, "temperature": 0.3, "max_tokens": 900,
-            "messages": [{"role": "system", "content": SYSTEM + "\n\nProject summary (JSON):\n" + project_context(d)}]
+            "messages": [{"role": "system", "content": _system(d) + "\n\nProject summary (JSON):\n" + project_context(d)}]
             + convo}
     req = urllib.request.Request(cfg.url, data=json.dumps(body).encode(), method="POST",
                                  headers={"Content-Type": "application/json", "Authorization": f"Bearer {cfg.key}",

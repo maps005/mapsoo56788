@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <link rel="icon" href="{{ brand.icon }}">
-<link rel="stylesheet" href="{% static 'planner/style.css' %}?v=11">
+<link rel="stylesheet" href="{% static 'planner/style.css' %}?v=12">
 </head>
 <body data-can-approve="{{ can_approve|yesno:'true,false' }}" data-user="{{ user.username }}">
 <header>
@@ -96,16 +96,16 @@
       <div class="panel dark"><h2><span>2.</span> LLD DESIGN <small>(AutoCAD)</small></h2>
         <div id="ovLld" class="lldbox"></div>
         <div class="pfoot"><a data-dl="lld.dxf">DXF</a><a data-dl="lld.pdf">PDF</a><button data-go="lld">Open drawing</button></div></div>
-      <div class="panel"><h2><span>3.</span> POLE SUMMARY</h2>
+      <div class="panel"><h2><span>3.</span> <span id="ovPolesTitle">POLE SUMMARY</span></h2>
         <div id="ovPoles" class="ovtable"></div>
-        <div class="pfoot"><a data-dl="pole_summary.xlsx">Excel</a><a data-dl="pole_summary.pdf">PDF</a><button data-go="schedules">All poles</button></div></div>
+        <div class="pfoot"><a data-dl="pole_summary.xlsx">Excel</a><a data-dl="pole_summary.pdf">PDF</a><button data-go="schedules" id="ovPolesAll">All poles</button></div></div>
     </div>
     <div class="ovgrid g4">
       <div class="panel"><h2><span>4.</span> BOM</h2><div id="ovBom" class="ovtable"></div>
         <div class="pfoot"><a data-dl="bom.xlsx">Excel</a><a data-dl="bom.pdf">PDF</a></div></div>
       <div class="panel"><h2><span>5.</span> BOQ</h2><div id="ovBoq" class="ovtable"></div>
         <div class="pfoot"><a data-dl="boq.xlsx">Excel</a><a data-dl="boq.pdf">PDF</a></div></div>
-      <div class="panel"><h2><span>6.</span> FIBRE SPLICING DIAGRAM</h2>
+      <div class="panel" data-fibre-only><h2><span>6.</span> FIBRE SPLICING DIAGRAM</h2>
         <div class="row"><label class="muted">PON <select id="ovPon"></select></label></div>
         <div id="ovSplice" class="splicebox"></div>
         <div class="pfoot"><a data-dl="splicing.pdf">PDF</a><a data-dl="splicing.xlsx">Excel</a><button data-go="splicing">Open editor</button></div></div>
@@ -156,8 +156,10 @@
       <div class="card"><h3>Project &amp; drawing title block</h3>
         <p class="muted">Printed on the LLD sheets, reports and file names. Saved with the project.</p>
         <div id="setTitle" class="form"></div></div>
-      <div class="card"><h3>Auto-design options</h3>
+      <div class="card" data-fibre-only><h3>Auto-design options</h3>
         <p class="muted">Used when you press Auto-design (saved in this browser). Defaults follow the company standard.</p>
+        <div class="form"><label>Sector (names, materials and tools)<select id="sectorSel"></select></label></div>
+        <div class="row"><button id="sectorApply">Switch project to this sector</button></div>
         <div class="form"><label>Design standard (design style + construction rules)<select id="stdSel"></select></label></div>
         <div class="row"><button id="stdApply">Apply standard to this project</button></div>
         <div id="setAuto" class="form"></div>
@@ -193,7 +195,7 @@
       <span class="sep"></span>
       <button id="btnAssign" title="Assign unserved homes to nearest FAT with free ports">Auto-assign homes</button>
       <button data-mode="extend" title="Click the map where the 48C backbone must reach (future phases)">Backbone end</button>
-      <button id="btnAutoDesign" class="ok" title="Design FATs, splitters, closures and cables from the survey data">Auto-design</button>
+      <button id="btnAutoDesign" data-fibre-only class="ok" title="Design FATs, splitters, closures and cables from the survey data">Auto-design</button>
       <button id="btnDelete" class="danger" title="Delete selected (Del)">Delete selected</button>
       <span class="sep"></span>
       <button data-mode="measure" title="Measure distance and area (M)">&#128207; Measure</button>
@@ -280,7 +282,7 @@
 
   <section id="tab-schedules" class="tab">
     <div class="card"><h3>Cable lengths</h3><div id="schCables" class="tablewrap"></div></div>
-    <div class="card"><h3>Pole summary</h3><div id="schPoles" class="tablewrap"></div></div>
+    <div class="card"><h3 id="schPolesTitle">Pole summary</h3><div id="schPoles" class="tablewrap"></div></div>
     <div class="grid2">
       <div class="card"><h3>BOM</h3><div id="schBom" class="tablewrap"></div></div>
       <div class="card"><h3>BOQ</h3><div id="schBoq" class="tablewrap"></div></div>
@@ -393,5 +395,6 @@
 <script src="{% static 'planner/tools.js' %}"></script>
 <script src="{% static 'planner/assistant.js' %}"></script>
 <script src="{% static 'planner/share.js' %}"></script>
+<script src="{% static 'planner/sector.js' %}"></script>
 </body>
 </html>

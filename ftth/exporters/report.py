@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
-from .. import calc, splicing, validate
+from .. import calc, sectors, splicing, validate
 from ..model import Design
 from .common import NODE_LABEL, clean
 
@@ -39,7 +39,7 @@ class Section:
 
     def text(self, value):
         """Planner-entered narrative, or the 'not recorded' marker."""
-        self.blocks.append(("p", value) if value and value.strip() else ("missing", NOT_RECORDED))
+        self.blocks.append(("p", value, "planner") if value and value.strip() else ("missing", NOT_RECORDED))
 
     def h(self, text):
         self.blocks.append(("h", text))
@@ -101,10 +101,20 @@ def sections(d: Design) -> list[Section]:
     fats = [n for n in d.nodes if n.kind == "FAT"]
     homes_hp = [h for h in d.homes if h.units > 0]
     new_poles = [p for p in d.poles if p.status == "proposed"]
+    out: list[Section] = []
+    sec_p = sectors.get(i.sector)
+    fibre = sec_p["fibre_tools"]
+    NODE_LABEL = sec_p["kinds"]  # equipment names in the project's sector
+
+    def line_key(c):  # "48C main"; other sectors "DN160 Distribution main"
+        return f"{c.cores}C {c.kind}" if fibre else \
+            f"{sectors.size_label(i.sector, c.cores)} {sec_p['lines'].get(c.kind, c.kind)}"
+
+    def size(n):
+        return n if fibre else sectors.size_label(i.sector, n)
     by_cable = defaultdict(float)
     for c in lengths:
-        by_cable[f"{c.cores}C {c.kind}"] += c.total_m
-    out: list[Section] = []
+        by_cable[line_key(c)] += c.total_m
 
     # --- executive summary ----------------------------------------------------------------------------
     ex = Section("Executive Summary")
@@ -114,11 +124,11 @@ def sections(d: Design) -> list[Section]:
               ("BOQ estimate", f"{s['currency']} {s['boq_total']:,.0f}")])
     served = sum(h.units for h in homes_hp if h.fat)
     share = (served / s["homepasses"] * 100) if s["homepasses"] else 0
-    ex.p(f"This report covers the survey and FTTH network design for {i.name or 'the project'}"
+    ex.p(f"This report covers the survey and {sec_p['network']} design for {i.name or 'the project'}"
          + (f" in {i.area}" if i.area else "") + (f" for {i.client}" if i.client else "") + ". "
          f"The survey recorded {len(d.homes):,} premises with {s['homepasses']:,} homepasses and {len(d.poles):,} poles. "
-         f"The proposed design serves {served:,} of the homepasses ({share:.0f}%) from {len(fats)} FATs fed through "
-         f"{sum(sp.stage == 1 for sp in d.splitters)} PON splitter(s).")
+         f"The proposed design serves {served:,} of the homepasses ({share:.0f}%) from {len(fats)} FATs"
+         + (f" fed through {sum(sp.stage == 1 for sp in d.splitters)} PON splitter(s)." if fibre else "."))
     ex.p(f"Design status: {i.design_status.replace('_', ' ')}; survey dataset: {i.survey_status}. The quality checks "
          f"report {qa['errors']} error(s) and {qa['warnings']} warning(s)"
          + ("; the design is ready for approval." if qa["errors"] == 0 else "; the errors must be fixed before approval."))
@@ -132,11 +142,12 @@ def sections(d: Design) -> list[Section]:
               ["Region / zone", " / ".join(x for x in (i.region, i.zone) if x)], ["Cluster", i.cluster],
               ["Survey date", i.survey_date], ["Surveyor(s)", i.surveyors], ["Prepared by", i.prepared_by],
               ["Design style", STYLE_LABEL.get(i.design_style, i.design_style)]])
-    intro.h("1.2 Feeder and interception")
+    intro.h("1.2 Feeder and interception" if fibre else "1.2 Supply and connection point")
     roots = [x for x in [i.interception_node, *i.interception_nodes] if x]
     intro.kv([["OLT", i.olt_name], ["OLT ports available", i.olt_ports_available],
               ["Interception point(s)", ", ".join(roots) or i.interception],
-              ["Feeder cores available", i.feeder_cores_available]])
+              ["Feeder cores available", i.feeder_cores_available]] if fibre else
+             [["Connection point(s)", ", ".join(roots) or i.interception]])
     out.append(intro)
 
     # --- 2 survey findings ----------------------------------------------------------------------------
@@ -178,7 +189,8 @@ def sections(d: Design) -> list[Section]:
             sv.table(["ID", "Type", "Pole", "Notes"], [[n.id, NODE_LABEL[n.kind], n.pole or "-", n.notes or ""] for n in existing])
         if ex_cables:
             sv.table(["Cable", "Cores", "Type", "Route length"],
-                     [[c.id, c.cores, c.kind, _m(calc.route_length(c))] for c in ex_cables])
+                     [[c.id, size(c.cores), c.kind if fibre else sec_p["lines"].get(c.kind, c.kind),
+                       _m(calc.route_length(c))] for c in ex_cables])
     out.append(sv)
 
     # --- 3 proposed solution --------------------------------------------------------------------------
@@ -187,12 +199,17 @@ def sections(d: Design) -> list[Section]:
     sol.h("3.1 Network elements")
     node_rows = [[NODE_LABEL[k], v] for k, v in s["nodes"].items() if v]
     split = Counter((sp.stage, sp.ratio) for sp in d.splitters)
-    node_rows += [[f"Splitter {ratio} (stage {stage})", v] for (stage, ratio), v in sorted(split.items())]
-    node_rows += [[f"FAT {p}-port", v] for p, v in sorted(Counter(n.ports or r.default_fat_ports for n in fats).items())]
+    if fibre:
+        node_rows += [[f"Splitter {ratio} (stage {stage})", v] for (stage, ratio), v in sorted(split.items())]
+    if fibre:
+        node_rows += [[f"FAT {p}-port", v] for p, v in sorted(Counter(n.ports or r.default_fat_ports for n in fats).items())]
+    for k, label in sec_p.get("ports", {}).items() if not fibre else []:  # e.g. transformers by kVA
+        node_rows += [[f"{NODE_LABEL[k]} {p} {label.split('(')[-1].rstrip(')')}", v] for p, v in
+                      sorted(Counter(n.ports for n in d.nodes if n.kind == k and n.ports).items())]
     if node_rows:
         sol.table(["Element", "Quantity"], node_rows)
     stage1 = [sp for sp in d.splitters if sp.stage == 1]
-    if stage1:
+    if stage1 and fibre:
         sol.h("3.2 PON structure")
         idx = splicing._index(d)
         fed_by = defaultdict(list)
@@ -208,18 +225,20 @@ def sections(d: Design) -> list[Section]:
         sol.table(["PON splitter", "Location", "Ratio", "OLT port", "Outputs used", "Homepasses"], rows)
         if fed_by.get(""):
             sol.p(f"{len(fed_by[''])} FAT splitter(s) are not yet allocated to a PON (run Auto-allocate).")
-    if fats:
+    if fats and fibre:
         sol.h("3.3 FAT loading")
         used = [load.get(f.id, 0) * r.fat_load_take_rate / (f.ports or r.default_fat_ports) for f in fats]
         sol.p(f"Capacity is checked at a {r.fat_load_take_rate:.0%} take rate of the homepasses each FAT serves. "
               f"Average port use is {sum(used) / len(used):.0%} and the highest is {max(used):.0%}; "
               f"{sum(u > 1 for u in used)} FAT(s) are over capacity.")
     sol.h("3.4 Design rules applied")
-    sol.kv([["FAT and splitter", f"{r.default_fat_ports}-port FAT with 1x{r.default_fat_split} splitter"],
-            ["PON splitter", f"1x{r.default_pon_split}"], ["FAT sizing take rate", f"{r.fat_load_take_rate:.0%}"],
+    sol.kv(([["FAT and splitter", f"{r.default_fat_ports}-port FAT with 1x{r.default_fat_split} splitter"],
+             ["PON splitter", f"1x{r.default_pon_split}"], ["FAT sizing take rate", f"{r.fat_load_take_rate:.0%}"]]
+            if fibre else [["Sector", sec_p["label"]], [f"{sec_p['line']} sizes", f"{sec_p['size']} ({sec_p['size_unit']})"]]) + [
             ["Cable allowance", f"{r.cable_extra_pct:g}% + {r.cable_end_allowance_m:g} m per cable, rounded up to "
-                                f"{r.cable_round_up_m:g} m"],
-            ["Slack", f"{r.slack_per_cable_end_m:g} m per equipment end, {r.slack_per_passing_node_m:g} m per pass-through"]])
+                                f"{r.cable_round_up_m:g} m"]] +
+           ([["Slack", f"{r.slack_per_cable_end_m:g} m per equipment end, {r.slack_per_passing_node_m:g} m per pass-through"]]
+            if fibre else [["Installation", "overhead on poles" if sec_p["install"] == "aerial" else "buried in trench"]]))
     out.append(sol)
 
     # --- 4 cable routing ------------------------------------------------------------------------------
@@ -227,22 +246,34 @@ def sections(d: Design) -> list[Section]:
     if lengths:
         route.h("4.1 Cable totals")
         route.table(["Cable", "Cables", "Route length", "Design length"],
-                    [[k, sum(1 for c in lengths if f"{c.cores}C {c.kind}" == k),
-                      _m(sum(c.route_m for c in lengths if f"{c.cores}C {c.kind}" == k)), _m(v)]
+                    [[k, sum(1 for c in lengths if line_key(c) == k),
+                      _m(sum(c.route_m for c in lengths if line_key(c) == k)), _m(v)]
                      for k, v in sorted(by_cable.items())] +
                     [["Total", len(lengths), _m(sum(c.route_m for c in lengths)), _m(sum(c.total_m for c in lengths))]],
                     total=True)
-        route.p(f"Design lengths add {r.cable_extra_pct:g}% route allowance, {r.slack_per_cable_end_m:g} m slack per "
-                f"cable end at equipment, {r.slack_per_passing_node_m:g} m per pass-through enclosure and "
-                f"{r.riser_per_pole_end_m:g} m riser per pole-mounted end. Road crossings: {sum(c.crossings for c in lengths)}.")
+        if fibre:
+            route.p(f"Design lengths add {r.cable_extra_pct:g}% route allowance, {r.slack_per_cable_end_m:g} m slack per "
+                    f"cable end at equipment, {r.slack_per_passing_node_m:g} m per pass-through enclosure and "
+                    f"{r.riser_per_pole_end_m:g} m riser per pole-mounted end. Road crossings: "
+                    f"{sum(c.crossings for c in lengths)}.")
+        else:
+            route.p(f"Design lengths add {r.cable_extra_pct:g}% for fittings and jointing"
+                    + (f", {r.cable_end_allowance_m:g} m per end and {r.sag_per_point_m:g} m sag per support"
+                       if sec_p["install"] == "aerial" else "") +
+                    f", rounded up to {r.cable_round_up_m:g} m. Road crossings: {sum(c.crossings for c in lengths)}.")
         route.h("4.2 Cable schedule")
         route.table(["Cable", "Type", "Cores", "Install", "From", "To", "Route", "Design"],
-                    [[c.cable, c.kind, c.cores, d.cable(c.cable).install, d.cable(c.cable).from_node or "-",
+                    [[c.cable, c.kind if fibre else sec_p["lines"].get(c.kind, c.kind), size(c.cores),
+                      d.cable(c.cable).install, d.cable(c.cable).from_node or "-",
                       d.cable(c.cable).to_node or "-", _m(c.route_m), _m(c.total_m)] for c in lengths])
     else:
         route.p("No cable routes have been designed yet.")
     used_rows = [x for x in calc.pole_summary(d) if x.cables]
-    if used_rows:
+    if used_rows and not fibre:  # the sector's support hardware (none for buried networks)
+        route.h(f"4.3 {sec_p['support']}s on the route")
+        route.table(["Item", "Quantity"], [[f"{sec_p['support']}s on new {sec_p['line'].lower()}s", len(used_rows)]] +
+                    [[h, sum(getattr(x, k) for x in used_rows)] for k, h in sec_p["hardware"]])
+    elif used_rows:
         route.h("4.3 Pole accessories")
         route.table(["Item", "Quantity"], [["Poles carrying new cable", len(used_rows)],
                                            ["J-hooks", sum(x.jhooks for x in used_rows)],
@@ -253,19 +284,36 @@ def sections(d: Design) -> list[Section]:
 
     # --- 5 equipment ----------------------------------------------------------------------------------
     eq = Section("5. Equipment Schedule")
-    if fats:
+    if fats and fibre:
         eq.h("5.1 FATs")
         eq.table(["FAT", "Ports", "Pole", "Splitter", "Homepasses", "Status"],
                  [[f.id, f.ports or r.default_fat_ports, f.pole or "-",
                    ", ".join(sp.ratio for sp in d.splitters if sp.node == f.id) or "shared",
                    load.get(f.id, 0), f.status] for f in sorted(fats, key=lambda n: n.id)])
+    elif fats:
+        eq.h(f"5.1 {NODE_LABEL['FAT']}s")
+        eq.table(["ID", "Pole", "Homepasses", "Status"],
+                 [[f.id, f.pole or "-", load.get(f.id, 0), f.status] for f in sorted(fats, key=lambda n: n.id)])
     other = [n for n in d.nodes if n.kind not in ("FAT", "SLACK")]
-    if other:
+    dets = sec_p["details"].get("node", [])
+
+    def node_details(n):
+        return "; ".join(f"{f['label']}: {n.details[f['key']]}{' ' + f['unit'] if f['unit'] else ''}"
+                         for f in dets if f["key"] in n.details)
+    if other and fibre:
         eq.h("5.2 Closures, junction boxes and PON points")
         eq.table(["ID", "Type", "Status", "Pole", "Latitude", "Longitude", "Splitters"],
                  [[n.id, NODE_LABEL[n.kind], n.status, n.pole or "-",
                    f"{n.lat:.6f}" if n.lat is not None else "-", f"{n.lon:.6f}" if n.lon is not None else "-",
                    ", ".join(sp.ratio for sp in d.splitters if sp.node == n.id) or "-"] for n in other])
+    elif other:
+        eq.h("5.2 Network equipment")
+        rating = sec_p.get("ports", {})
+        eq.table(["ID", "Type", "Status", "Pole", "Latitude", "Longitude", "Rating and details"],
+                 [[n.id, NODE_LABEL[n.kind], n.status, n.pole or "-",
+                   f"{n.lat:.6f}" if n.lat is not None else "-", f"{n.lon:.6f}" if n.lon is not None else "-",
+                   "; ".join(x for x in ((f"{rating[n.kind]}: {n.ports}" if n.kind in rating and n.ports else ""),
+                                         node_details(n)) if x) or "-"] for n in other])
     if new_poles:
         eq.h("5.3 New poles")
         eq.table(["Pole", "Type", "Latitude", "Longitude", "Notes"],
@@ -336,27 +384,29 @@ def sections(d: Design) -> list[Section]:
     con.p(f"Estimated material cost (BOQ): {s['currency']} {s['boq_total']:,.2f}.")
     out.append(con)
 
+    words = sectors.wording(i.sector)  # fibre words -> the sector's words
+    txt = (lambda x: clean(sectors.reword(clean(x), words))) if words else clean
     for sec in out:  # text that XML-based formats (docx, pdf) can store
-        sec.title = clean(sec.title)
+        sec.title = txt(sec.title)
         blocks = []
         for b in sec.blocks:
-            if b[0] in ("p", "missing", "h"):
-                blocks.append((b[0], clean(b[1])))
+            if b[0] in ("p", "missing", "h"):  # the planner's own words are kept as written
+                blocks.append((b[0], clean(b[1]) if b[2:] == ("planner",) else txt(b[1])))
             elif b[0] == "kv":
-                blocks.append(("kv", [[clean(k), clean(v)] for k, v in b[1]]))
+                blocks.append(("kv", [[txt(k), clean(v)] for k, v in b[1]]))
             elif b[0] == "table":
-                blocks.append(("table", [clean(h) for h in b[1]], [[clean(c) for c in row] for row in b[2]], b[3]))
+                blocks.append(("table", [txt(h) for h in b[1]], [[clean(c) for c in row] for row in b[2]], b[3]))
             elif b[0] == "cards":
-                blocks.append(("cards", [(clean(k), clean(v)) for k, v in b[1]]))
+                blocks.append(("cards", [(txt(k), clean(v)) for k, v in b[1]]))
             elif b[0] == "bullets":
-                blocks.append(("bullets", [clean(x) for x in b[1]]))
+                blocks.append(("bullets", [txt(x) for x in b[1]]))
         sec.blocks = blocks
     return out
 
 
 def document_control(d: Design, st) -> list[list[str]]:
     i = d.info
-    return [["Document", "FTTH Survey and Design Report"], ["Project", clean(i.name)], ["Revision", str(st.revision)],
+    return [["Document", sectors.get(i.sector)["report_title"]], ["Project", clean(i.name)], ["Revision", str(st.revision)],
             ["Status", st.status.replace("_", " ").title()], ["Date", st.date], ["Data reference", st.hash],
             ["Issued by", clean(st.brand.name)]]
 

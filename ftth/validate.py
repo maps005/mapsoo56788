@@ -4,13 +4,14 @@ from __future__ import annotations
 import math
 from collections import Counter, defaultdict
 
-from . import calc, splicing
+from . import calc, sectors, splicing
 from .geo import haversine, valid_coord
 from .model import Design
 
 
 def validate(d: Design) -> list[dict]:
     issues: list[dict] = []
+    fibre, sec = sectors.fibre_tools(d), sectors.get(d.info.sector)
 
     def add(sev, code, msg, ref=None):
         issues.append({"severity": sev, "code": code, "message": msg, "ref": ref})
@@ -103,15 +104,18 @@ def validate(d: Design) -> list[dict]:
                     add("warning", "cable_unterminated", f"Cable {c.id} has no '{end}' node", c.id)
             elif nid and not d.node(nid):
                 add("error", "cable_end_node", f"Cable {c.id} {end}-node {nid} does not exist", c.id)
-        bad = [n for n in c.reserved if not 1 <= n <= c.cores]
+        bad = [n for n in c.reserved if not 1 <= n <= c.cores] if fibre else []
         if bad:
             add("error", "reserved_range", f"Cable {c.id} reserves non-existent cores {bad}", c.id)
+        if not fibre and c.cores not in sec["sizes"]:
+            add("warning", "line_size", f"{sec['line']} {c.id} size {sectors.size_label(d.info.sector, c.cores)} is not "
+                                        f"one of the sector's sizes ({', '.join(map(str, sec['sizes']))} {sec['size_unit']})", c.id)
         if c.status == "proposed" and c.install == "aerial" and len(c.path) >= 2 and not any(v.pole for v in c.path):
             add("warning", "aerial_no_poles", f"Aerial cable {c.id} is not attached to any pole", c.id)
 
     # cable sizing: homes downstream vs. cores is checked by allocation; FAT capacity here
     load = calc.fat_load(d)
-    for n in d.nodes:
+    for n in d.nodes if fibre else []:  # FAT ports are fibre; other sectors check their own capacity below
         if n.kind == "FAT":
             cap = n.ports or d.rules.default_fat_ports
             need = math.ceil(load.get(n.id, 0) * d.rules.fat_load_take_rate - 1e-9)
@@ -123,15 +127,21 @@ def validate(d: Design) -> list[dict]:
         bad = [f for f in h.fats if f not in fat_ids]
         if bad:
             add("error", "home_fat", f"Home {h.id} is assigned to unknown FAT {', '.join(bad)}", h.id)
-        elif fat_ids and not h.fat and h.units > 0:  # premises with no homepasses need no FAT
+        elif fat_ids and not h.fat and h.units > 0 and d.info.sector != "lighting":  # no homepasses: no FAT needed
             add("warning", "home_unassigned", f"Home {h.id} is not served by a FAT", h.id)
 
     if d.cables and not any(n.kind == "POP" or (n.kind in ("ENCLOSURE", "PR_ENCLOSURE") and n.status == "existing")
                             for n in d.nodes):
-        add("error", "no_pop", "Design has cables but no starting point (a POP or an existing interception closure)")
+        k = sec["kinds"]
+        add("error", "no_pop", "Design has cables but no starting point (a POP or an existing interception closure)"
+            if fibre else f"Design has cables but no starting point (a {k['POP'].lower()} or an existing "
+                          f"{k['ENCLOSURE'].lower()})")
 
-    # ---- splicing ------------------------------------------------------------
-    issues.extend(splicing.check(d))
+    # ---- splicing (fibre) / sector engineering checks ---------------------------
+    if fibre:
+        issues.extend(splicing.check(d))
+    else:
+        _sector_checks(d, add)
 
     # ---- materials -----------------------------------------------------------
     for line in calc.bom(d):
@@ -157,7 +167,82 @@ def validate(d: Design) -> list[dict]:
     # ---- workflow --------------------------------------------------------------
     if (d.cables or d.nodes) and d.info.survey_status != "approved":
         add("warning", "survey_unapproved", "Design work exists but the survey dataset is not approved")
+    words = sectors.wording(d.info.sector)
+    if words:  # messages in the sector's words: "Manhole MH-03", "Sewer S004", not pole and cable
+        for i in issues:
+            i["message"] = sectors.reword(i["message"], words)
     return issues
+
+
+def _num(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def _sector_checks(d: Design, add) -> None:
+    """Checks a fibre network does not need: sewer fall from invert levels, transformer loading, column spacing."""
+    r, key = d.rules, d.info.sector
+    if key == "sanitation":
+        # invert levels recorded at manholes (supports or equipment) along each sewer, in drawing order
+        for c in d.cables:
+            pts = []  # (chainage m, invert m, feature id)
+            dist = 0.0
+            for i, v in enumerate(c.path):
+                if i:
+                    a = c.path[i - 1]
+                    dist += haversine(a.lat, a.lon, v.lat, v.lon)
+                f = (d.node(v.node) if v.node else None) or (d.pole(v.pole) if v.pole else None)
+                lvl = _num(f.details.get("invert_level_m")) if f else None
+                if lvl is not None and (not pts or pts[-1][2] != f.id):
+                    pts.append((dist, lvl, f.id))
+            if len(pts) < 2:
+                continue
+            flow = 1 if pts[0][1] >= pts[-1][1] else -1  # sewage runs to the lower end
+            for (c1, l1, a), (c2, l2, b) in zip(pts, pts[1:]):
+                run = c2 - c1
+                if run < 0.5:
+                    continue
+                fall = (l1 - l2) * flow
+                pct = fall / run * 100
+                if fall < 0:
+                    add("error", "sewer_adverse", f"Sewer {c.id} rises {-fall:.2f} m from {a} to {b} against the flow "
+                                                  f"(check the invert levels)", c.id)
+                elif pct < r.sewer_min_gradient_pct:
+                    add("warning", "sewer_gradient", f"Sewer {c.id} {a} to {b}: gradient {pct:.2f}% is below the "
+                                                     f"minimum {r.sewer_min_gradient_pct:g}% (1 in "
+                                                     f"{100 / r.sewer_min_gradient_pct:.0f})", c.id)
+        for f in list(d.poles) + list(d.nodes):
+            cover, inv = _num(f.details.get("cover_level_m")), _num(f.details.get("invert_level_m"))
+            if cover is not None and inv is not None and inv >= cover:
+                add("error", "manhole_levels", f"{f.id}: invert level {inv:g} m is not below the cover level {cover:g} m",
+                    f.id)
+    if key == "electricity":
+        capacity = sum(n.ports or 0 for n in d.nodes if n.kind == "PON")
+        demand = sum((_num(h.details.get("load_kva")) or r.admd_kva) * max(h.units, 0) for h in d.homes)
+        if demand and not capacity:
+            add("warning", "tx_missing", f"{demand:.0f} kVA of customer demand but no distribution transformer")
+        elif capacity and demand > capacity:
+            add("error", "tx_overload", f"Customer demand {demand:.0f} kVA exceeds the transformer capacity "
+                                        f"{capacity:.0f} kVA (customers without a recorded load count {r.admd_kva:g} kVA)")
+        for n in d.nodes:
+            if n.kind == "PON" and not n.ports:
+                add("warning", "tx_rating", f"Transformer {n.id} has no kVA rating", n.id)
+    if key == "lighting":
+        cols = {p.id for p in d.poles}
+        for c in d.cables:
+            seq = []  # lighting columns along the cable, with their chainage
+            dist = 0.0
+            for i, v in enumerate(c.path):
+                if i:
+                    dist += haversine(c.path[i - 1].lat, c.path[i - 1].lon, v.lat, v.lon)
+                if v.pole in cols and (not seq or seq[-1][1] != v.pole):
+                    seq.append((dist, v.pole))
+            for (c1, a), (c2, b) in zip(seq, seq[1:]):
+                if c2 - c1 > r.max_column_spacing_m:
+                    add("warning", "column_spacing", f"Columns {a} and {b} on {c.id} are {c2 - c1:.0f} m apart (more "
+                                                     f"than {r.max_column_spacing_m:g} m: dark patch between them)", c.id)
 
 
 def counts(issues: list[dict]) -> dict:

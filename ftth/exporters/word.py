@@ -11,6 +11,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
+from .. import sectors
 from ..model import Design
 from . import report
 from .common import Stamp, clean, logo_size, photo_path
@@ -103,7 +104,8 @@ def report_docx(d: Design, st: Stamp, photo_dir: Path | None) -> bytes:
     if st.brand.details:
         dr = sec0.header.add_paragraph().add_run(clean(st.brand.details))
         dr.font.size, dr.font.color.rgb = Pt(8), GREY
-    ft = sec0.footer.paragraphs[0].add_run(clean(f"{d.info.name}  |  FTTH Survey and Design Report  |  "
+    title = sectors.get(d.info.sector)["report_title"]
+    ft = sec0.footer.paragraphs[0].add_run(clean(f"{d.info.name}  |  {title}  |  "
                                                  f"Rev {st.revision} ({st.status.replace('_', ' ')})  |  {st.date}"))
     ft.font.size, ft.font.color.rgb = Pt(8), GREY
 
@@ -116,9 +118,9 @@ def report_docx(d: Design, st: Stamp, photo_dir: Path | None) -> bytes:
             pass
     for _ in range(4):
         doc.add_paragraph()
-    k = doc.add_paragraph().add_run("FTTH SURVEY AND DESIGN REPORT")
+    k = doc.add_paragraph().add_run(title.upper())
     k.bold, k.font.size, k.font.color.rgb = True, Pt(11), GOLD
-    t = doc.add_paragraph().add_run(clean(d.info.name or "FTTH project"))
+    t = doc.add_paragraph().add_run(clean(d.info.name or "Project"))
     t.bold, t.font.size, t.font.color.rgb = True, Pt(24), NAVY
     sub = " | ".join(x for x in (d.info.area, d.info.client, d.info.cluster) if x)
     if sub:

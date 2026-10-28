@@ -124,7 +124,8 @@ class MembershipInline(admin.TabularInline):
 
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
-    list_display = ("logo_thumb", "name", "phone", "email", "members", "projects_count")
+    list_display = ("logo_thumb", "name", "sector", "phone", "email", "members", "projects_count")
+    list_filter = ("sector",)
     list_display_links = ("logo_thumb", "name")
     search_fields = ("name", "legal_name")
     inlines = [MembershipInline]

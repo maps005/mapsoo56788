@@ -17,6 +17,21 @@ Status = Literal["existing", "proposed"]
 NodeKind = Literal["POP", "ENCLOSURE", "PR_ENCLOSURE", "JB", "PON", "FAT", "SLACK"]
 CableKind = Literal["main", "spur", "drop"]
 
+Detail = Optional[str | float | int | bool]
+
+
+def _check_details(v: dict) -> dict:
+    """Sector details (pipe material, voltage, invert level...): short keys, plain values, a sensible amount."""
+    if len(v) > 60:
+        raise ValueError("at most 60 detail fields per feature")
+    for k, x in v.items():
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,39}", k):
+            raise ValueError(f"detail name '{k}' must be lower-case letters, digits and _")
+        if isinstance(x, str) and len(x) > 300:
+            raise ValueError(f"detail '{k}' is longer than 300 characters")
+    return {k: x for k, x in v.items() if x not in (None, "")}
+
+
 NODE_PREFIX = {"POP": "POP", "ENCLOSURE": "SE", "PR_ENCLOSURE": "PR", "JB": "JB", "PON": "PON", "FAT": "FAT",
                "SLACK": "SL"}
 
@@ -30,6 +45,9 @@ class Pole(BaseModel):
     condition: str = ""
     status: Status = "existing"
     notes: str = ""
+    details: dict[str, Detail] = Field(default_factory=dict)  # sector details (fields: ftth.sectors SECTORS[..]["details"])
+
+    _details = field_validator("details")(classmethod(lambda cls, v: _check_details(v)))
 
 
 class Home(BaseModel):
@@ -46,6 +64,9 @@ class Home(BaseModel):
     field_type: Literal["green", "brown", ""] = ""  # green field / brown field
     access_notes: str = ""
     notes: str = ""
+    details: dict[str, Detail] = Field(default_factory=dict)
+
+    _details = field_validator("details")(classmethod(lambda cls, v: _check_details(v)))
 
     @property
     def fats(self) -> list[str]:
@@ -62,6 +83,9 @@ class Node(BaseModel):
     status: Status = "proposed"
     ports: Optional[int] = None  # customer ports for a FAT; OLT PON ports for a POP
     notes: str = ""
+    details: dict[str, Detail] = Field(default_factory=dict)
+
+    _details = field_validator("details")(classmethod(lambda cls, v: _check_details(v)))
 
 
 class Splitter(BaseModel):
@@ -102,6 +126,9 @@ class Cable(BaseModel):
     path: list[Vertex] = Field(default_factory=list)
     reserved: list[int] = Field(default_factory=list)
     notes: str = ""
+    details: dict[str, Detail] = Field(default_factory=dict)
+
+    _details = field_validator("details")(classmethod(lambda cls, v: _check_details(v)))
 
 
 class End(BaseModel):
@@ -143,6 +170,15 @@ class Consumable(BaseModel):
     ratio: float = 1.0
     rounding: Literal["up", "nearest"] = "up"
     step: float = 1.0  # round to multiples of this (pack size)
+
+
+class SupportItem(BaseModel):
+    """Material fitted to every new support, e.g. luminaires on a lighting column; the code may name the support's
+    details ("LUMINAIRE-{lamp_w}W") and the quantity may come from a detail ("lamps")."""
+    code: str
+    qty_detail: str = ""
+    default_qty: float = 1.0
+    defaults: dict[str, Detail] = Field(default_factory=dict)
 
 
 class Rules(BaseModel):
@@ -206,6 +242,11 @@ class Rules(BaseModel):
     install_trunking_code: str = "INST-TRUNKING"  # per metre of trunking
     trench_code: str = "CIVIL-TRENCH"             # per metre of underground route
     building_cabling_code: str = "BUILDING-CABLING"  # per MDU building served
+    support_items: list[SupportItem] = Field(default_factory=list)
+    # sector checks (see ftth.validate): sewer fall, transformer loading, lighting column spacing
+    sewer_min_gradient_pct: float = 0.5   # 1 in 200
+    admd_kva: float = 1.5                 # after-diversity demand of a customer with no load recorded
+    max_column_spacing_m: float = 40.0
     consumables: list[Consumable] = Field(default_factory=lambda: [
         Consumable(code="STEEL-STRAP", basis="upb", ratio=1 / 15, rounding="up"),
         Consumable(code="BUCKLE-CLIP", basis="upb", ratio=2, rounding="nearest", step=10),
@@ -246,6 +287,7 @@ class ProjectInfo(BaseModel):
     interception: str = ""
     interception_node: str = ""   # ID of the existing closure / POP the new network starts from
     interception_nodes: list[str] = Field(default_factory=list)  # further interception points (large areas)
+    sector: Literal["fibre", "water", "pipelines", "electricity", "lighting", "sanitation"] = "fibre"  # ftth.sectors
     design_style: Literal["per_premise", "coverage"] = "per_premise"  # how Auto-design sizes FATs (see autodesign)
     extend_to: list[list[float]] = Field(default_factory=list)  # [[lat, lon]] backbone must reach (future phases)
     feeder_cores_available: str = ""

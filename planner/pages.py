@@ -145,8 +145,15 @@ class CompanyForm(forms.ModelForm):
     class Meta:
         model = Company
         fields = ["name", "legal_name", "logo", "registration_no", "tax_pin", "address", "phone", "email", "website",
-                  "currency", "design_standard"]
+                  "currency", "sector", "design_standard"]
         widgets = {"address": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["sector"].required = False  # left out: fibre, as before sectors existed
+
+    def clean_sector(self):
+        return self.cleaned_data.get("sector") or "fibre"
 
     def clean_logo(self):
         f = self.cleaned_data.get("logo")

@@ -1,15 +1,19 @@
 {% extends "admin/base.html" %}
 {% load static planner_admin %}
 {% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ brand.name }} admin{% endblock %}
-{% block extrastyle %}{{ block.super }}<link rel="icon" href="{{ brand.icon }}"><link rel="stylesheet" href="{% static 'planner/admin-theme.css' %}">{% endblock %}
+{# one light theme, like the rest of the site: Django's dark mode and theme switch are left out #}
+{% block dark-mode-vars %}{% endblock %}
+{% block extrastyle %}{{ block.super }}<link rel="icon" href="{{ brand.icon }}"><link rel="stylesheet" href="{% static 'planner/admin-theme.css' %}?v=6">{% endblock %}
 {% block branding %}
 <div id="site-name"><a href="{% url 'admin:index' %}">
   {% if brand.is_company %}{% if brand.logo %}<span class="cochip"><img src="{{ brand.logo }}" alt="" height="26"></span>{% endif %}
   <span>{{ brand.name|upper }}</span>{% else %}<img src="{% static 'planner/img/archplanner-mark-light.png' %}" alt="" width="30" height="30">
-  <span>ARCHPLANNER</span>{% endif %} <small>administration</small></a></div>
-{% if user.is_anonymous %}{% include "admin/color_theme_toggle.html" %}{% endif %}
+  <span>ARCH<b>PLANNER</b></span>{% endif %} <small>Admin</small></a></div>
 {% endblock %}
-{% block userlinks %}<a href="/">Planner</a> / <a href="/projects/">Projects</a> / <a href="/review/">Review</a> / <a href="/company/">Company</a> / <a href="/profile/">Profile</a> / {{ block.super }}{% endblock %}
+{% block welcome-msg %}<span class="ap-welcome">Signed in as <strong>{% firstof user.get_short_name user.get_username %}</strong></span>{% endblock %}
+{% block userlinks %}<a href="/">Planner</a> <a href="/projects/">Projects</a> <a href="/review/">Review</a> <a href="/company/">Company</a> <a href="/profile/">Profile</a>
+{% if user.has_usable_password %}<a href="{% url 'admin:password_change' %}">Change password</a>{% endif %}
+<form id="logout-form" method="post" action="{% url 'admin:logout' %}">{% csrf_token %}<button type="submit">Sign out</button></form>{% endblock %}
 {% block nav-global %}{% endblock %}
 {% block messages %}
 {% open_reset_requests as resets %}

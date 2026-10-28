@@ -1,0 +1,57 @@
+{% extends "admin/index.html" %}
+{% load i18n planner_admin humanize %}
+{# Admin home: greeting, quick actions, key figures and recent projects above Django's model list #}
+{% block content_title %}{% endblock %}
+{% block content %}
+{% admin_dashboard as dash %}
+<div class="ap-hello">
+  <div><h1>Welcome back, {% firstof user.first_name user.get_username %}</h1>
+    <p>Manage companies, people and projects for {{ brand.name }}.</p></div>
+  <div class="ap-quick">
+    {% if perms.planner.view_project %}<a class="primary" href="{% url 'admin:planner_project_changelist' %}">Projects</a>
+    <a href="{% url 'admin:planner_project_gantt' %}">Gantt chart</a>{% endif %}
+    {% if perms.planner.view_company %}<a href="{% url 'admin:planner_company_changelist' %}">Companies</a>{% endif %}
+    {% if perms.auth.view_user %}<a href="{% url 'admin:auth_user_changelist' %}">Users</a>{% endif %}
+    <a href="/">Open planner</a>
+  </div>
+</div>
+{% if dash.projects is not None %}
+<div class="ap-kpis">
+  <a class="ap-kpi" href="{% url 'admin:planner_project_changelist' %}"><b>{{ dash.projects|intcomma }}</b><span>Projects</span></a>
+  <a class="ap-kpi gold" href="{% url 'admin:planner_project_gantt' %}"><b>{{ dash.draft }}</b><span>In design</span></a>
+  <a class="ap-kpi amber" href="/review/"><b>{{ dash.in_review }}</b><span>In review</span></a>
+  <a class="ap-kpi green" href="{% url 'admin:planner_project_gantt' %}?show=all"><b>{{ dash.approved }}</b><span>Approved</span></a>
+  <a class="ap-kpi red" href="{% url 'admin:planner_project_gantt' %}"><b>{{ dash.late }}</b><span>Late</span></a>
+  {% if dash.companies is not None %}<a class="ap-kpi" href="{% url 'admin:planner_company_changelist' %}"><b>{{ dash.companies }}</b><span>Companies</span></a>{% endif %}
+  {% if dash.users is not None %}<a class="ap-kpi" href="{% url 'admin:auth_user_changelist' %}"><b>{{ dash.users }}</b><span>Active users</span></a>{% endif %}
+</div>
+{% endif %}
+<div class="ap-columns">
+  <div id="content-main">
+    {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+  </div>
+  <div>
+    {% if dash.recent is not None %}
+    <div class="module ap-recent">
+      <h2>Recently updated projects</h2>
+      {% if dash.recent %}<table>{% for r in dash.recent %}
+        <tr><td><a href="{% url 'admin:planner_project_change' r.project.pk %}">{{ r.project.name|truncatechars:42 }}</a><br>
+          <span class="quiet">{{ r.project.company|default:"No company" }}{% if r.project.assigned_to %} · {{ r.project.assigned_to }}{% endif %}</span></td>
+          <td><span class="ap-pill {{ r.status }}">{{ r.status|cut:"_"|capfirst }}</span>{% if r.late %} <span class="ap-pill late">Late</span>{% endif %}</td>
+          <td class="num">{{ r.project.updated|naturaltime }}</td></tr>{% endfor %}</table>
+      {% else %}<p class="ap-empty">No projects yet.</p>{% endif %}
+    </div>
+    {% endif %}
+    <div class="module" id="recent-actions-module">
+      <h2>{% translate 'Recent actions' %}</h2>
+      {% load log %}{% get_admin_log 8 as admin_log for_user user %}
+      {% if not admin_log %}<p class="ap-empty">{% translate 'None available' %}</p>{% else %}
+      <table>{% for entry in admin_log %}<tr><td>
+        {% if entry.is_deletion or not entry.get_admin_url %}{{ entry.object_repr }}{% else %}<a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>{% endif %}
+        <br><span class="quiet">{% if entry.is_addition %}Added{% elif entry.is_change %}Changed{% else %}Deleted{% endif %} · {% if entry.content_type %}{{ entry.content_type.name|capfirst }}{% endif %}</span></td></tr>{% endfor %}</table>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block sidebar %}{% endblock %}

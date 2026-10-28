@@ -11,7 +11,7 @@ from reportlab.lib.pagesizes import A3, landscape
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas as rl_canvas
 
-from .. import calc, splicing
+from .. import calc, sectors, splicing
 from ..geo import LocalProjection
 from ..model import Design
 from . import pdf
@@ -25,6 +25,9 @@ TB_W = 150 * mm
 
 
 def _workload(d: Design) -> list[tuple[str, str]]:
+    if not sectors.fibre_tools(d):  # other sectors: the drawing's work list is the BOM itself
+        return [(l.description.upper()[:28], f"{l.qty:,.0f}{'m' if l.unit.upper() == 'M' else 'pcs'}")
+                for l in calc.bom(d) if l.qty][:18]
     q = {l.code: l.qty for l in calc.bom(d)}
     fats = [n for n in d.nodes if n.kind == "FAT" and n.status == "proposed"]
     rows = calc.pole_summary(d)
@@ -98,7 +101,7 @@ def _frame(cv, d: Design, st: Stamp, title: str, page: int, total: int, work):
         cv.drawString(x + 2, y + 2, value[:52])
     cv.setFont("Helvetica-Bold", 7.5)
     cv.setFillColor(C("#1f4e79"))
-    cv.drawString(tx + 2, y0 + STRIP_H - 6.5, (company or "FTTH LLD")[:60])
+    cv.drawString(tx + 2, y0 + STRIP_H - 6.5, (company or ("FTTH LLD" if i.sector == "fibre" else "DETAILED DESIGN"))[:60])
     cv.setFont("Helvetica", 5)
     cv.setFillColor(colors.grey)
     cv.drawRightString(W - M - 2, y0 + STRIP_H - 6.5, f"Rev {st.revision} · {st.status.upper()} · data {st.hash}")
@@ -151,23 +154,31 @@ def build_lld_pdf(d: Design, st: Stamp, scale_denominator: int = 1500) -> bytes:
     rows = calc.pole_summary(d)
     per_page = 48
     pole_pages = max(1, math.ceil(len(rows) / per_page))
-    total = 2 + len(tiles) + 1 + pole_pages
+    fibre, sec = sectors.fibre_tools(d), sectors.get(d.info.sector)
+    total = 2 + len(tiles) + (1 if fibre else 0) + pole_pages
     page = 1
 
     # 1 cover
-    _frame(cv, d, st, "Fibre to the Home - LLD", page, total, work)
+    _frame(cv, d, st, "Fibre to the Home - LLD" if fibre else f"{sec['label']} - Detailed design", page, total, work)
     cv.setFont("Helvetica-Bold", 34)
     cv.setFillColor(C("#1f4e79"))
-    cv.drawCentredString(W / 2, H * 0.68, "FIBER TO THE HOME")
+    cv.drawCentredString(W / 2, H * 0.68, "FIBER TO THE HOME" if fibre else sec["label"].upper())
     cv.setFont("Helvetica-Bold", 18)
     cv.setFillColor(colors.black)
     cv.drawCentredString(W / 2, H * 0.60, clean(d.info.name)[:90])
     cv.setFont("Helvetica", 12)
     s = calc.summary(d)
-    lines = [clean(d.info.area), f"Homepasses: {s['homepasses']}   FATs: {s['nodes']['FAT']}   "
-             f"Splice closures: {s['nodes']['ENCLOSURE']}   Junction boxes: {s['nodes']['JB']}",
-             "   ".join(f"{k}: {v:,.0f} m" for k, v in s["cable_m"].items()),
-             f"OLT: {clean(d.info.olt_name) or '-'}   Interception: {clean(d.info.interception) or '-'}"]
+    if fibre:
+        lines = [clean(d.info.area), f"Homepasses: {s['homepasses']}   FATs: {s['nodes']['FAT']}   "
+                 f"Splice closures: {s['nodes']['ENCLOSURE']}   Junction boxes: {s['nodes']['JB']}",
+                 "   ".join(f"{k}: {v:,.0f} m" for k, v in s["cable_m"].items()),
+                 f"OLT: {clean(d.info.olt_name) or '-'}   Interception: {clean(d.info.interception) or '-'}"]
+    else:
+        k = sec["kinds"]
+        lines = [clean(d.info.area), f"{sec['unit'].capitalize()}: {s['homepasses']}   {sec['support']}s: {s['poles']}   " +
+                 "   ".join(f"{k[x]}: {s['nodes'][x]}" for x in ("POP", "ENCLOSURE", "JB", "PON", "FAT") if s["nodes"].get(x)),
+                 "   ".join(f"{sectors.reword(str(kk), sectors.wording(d.info.sector))}: {v:,.0f} m"
+                            for kk, v in s["cable_m"].items())]
     for k, t in enumerate(lines):
         cv.drawCentredString(W / 2, H * 0.53 - k * 18, t[:140])
     cv.showPage()
@@ -188,20 +199,26 @@ def build_lld_pdf(d: Design, st: Stamp, scale_denominator: int = 1500) -> bytes:
         cv.showPage()
         page += 1
 
-    # splicing details
-    _frame(cv, d, st, "Splicing details", page, total, work)
-    root = splicing.feed_root(d)
-    cv.setFont("Helvetica-Bold", 9)
-    cv.drawString(M + 8, H - M - 34, f"Feed: {clean(d.info.olt_name) or (root.id if root else '-')}"
-                                     f"{' via ' + root.id if root and d.info.olt_name else ''}")
-    pdf._schematic(cv, d, M + 8, map_y, W - 2 * M - 16, map_h - 20)
-    cv.showPage()
-    page += 1
+    # splicing details (fibre)
+    if fibre:
+        _frame(cv, d, st, "Splicing details", page, total, work)
+        root = splicing.feed_root(d)
+        cv.setFont("Helvetica-Bold", 9)
+        cv.drawString(M + 8, H - M - 34, f"Feed: {clean(d.info.olt_name) or (root.id if root else '-')}"
+                                         f"{' via ' + root.id if root and d.info.olt_name else ''}")
+        pdf._schematic(cv, d, M + 8, map_y, W - 2 * M - 16, map_h - 20)
+        cv.showPage()
+        page += 1
 
-    # pole summary
-    heads = ["Name", "Pole Type", "Longitude", "Latitude", "Tension Clamps", "UPB", "J-Hooks", "Extension Arm",
-             "Slack", "Equipment", "Notes"]
-    widths = [0.11, 0.08, 0.09, 0.09, 0.07, 0.05, 0.06, 0.07, 0.05, 0.13, 0.20]
+    # pole summary (other sectors: their support schedule and hardware)
+    if fibre:
+        hw = [("tension", "Tension Clamps"), ("upb", "UPB"), ("jhooks", "J-Hooks"), ("ext_arms", "Extension Arm")]
+        heads = ["Name", "Pole Type"] + ["Longitude", "Latitude"] + [h for _, h in hw] + ["Slack", "Equipment", "Notes"]
+        widths = [0.11, 0.08, 0.09, 0.09, 0.07, 0.05, 0.06, 0.07, 0.05, 0.13, 0.20]
+    else:
+        hw = [tuple(h) for h in sec["hardware"]]
+        heads = ["Name", f"{sec['support']} type", "Longitude", "Latitude"] + [h for _, h in hw] + ["", "Equipment", "Notes"]
+        widths = [0.11, 0.08, 0.09, 0.09] + [0.07] * len(hw) + [0.01, 0.17, 0.45 - 0.07 * len(hw)]
     slack_at = {}
     for n in d.nodes:
         if n.kind == "SLACK":
@@ -211,7 +228,7 @@ def build_lld_pdf(d: Design, st: Stamp, scale_denominator: int = 1500) -> bytes:
                 slack_at[best[1]] = slack_at.get(best[1], 0) + 1
     tw = W - 2 * M - 16
     for pg in range(pole_pages):
-        _frame(cv, d, st, "Pole summary", page, total, work)
+        _frame(cv, d, st, "Pole summary" if fibre else f"{sec['support']} schedule", page, total, work)
         y = H - M - 40
         x = M + 8
         cv.setFillColor(C("#1f4e79"))
@@ -231,8 +248,9 @@ def build_lld_pdf(d: Design, st: Stamp, scale_denominator: int = 1500) -> bytes:
                 cv.rect(x, y - 3, tw, 10, stroke=0, fill=1)
                 cv.setFillColor(colors.black)
             vals = [r.pole, r.type, f"{r.lon:.8f}" if r.lon is not None else "-",
-                    f"{r.lat:.8f}" if r.lat is not None else "-", r.tension, r.upb, r.jhooks, r.ext_arms,
-                    slack_at.get(r.pole, 0), ", ".join(e.split(":")[1] for e in r.equipment), "; ".join(r.notes)]
+                    f"{r.lat:.8f}" if r.lat is not None else "-"] + [getattr(r, a) for a, _ in hw] + \
+                [slack_at.get(r.pole, 0) if fibre else "", ", ".join(e.split(":")[1] for e in r.equipment),
+                 "; ".join(r.notes)]
             cv.setFont("Helvetica", 6)
             cx = x
             for v, w_ in zip(vals, widths):
@@ -241,9 +259,9 @@ def build_lld_pdf(d: Design, st: Stamp, scale_denominator: int = 1500) -> bytes:
         if pg == pole_pages - 1:
             y -= 12
             cv.setFont("Helvetica-Bold", 6.5)
-            tot = [sum(getattr(r, a) for r in rows) for a in ("tension", "upb", "jhooks", "ext_arms")]
+            tot = [sum(getattr(r, a) for r in rows) for a, _ in hw]
             cx = x + sum(widths[:4]) * tw
-            for v, w_ in zip(tot + [sum(slack_at.values())], widths[4:9]):
+            for v, w_ in zip(tot + [sum(slack_at.values()) if fibre else ""], widths[4:5 + len(hw)]):
                 cv.drawString(cx + 2, y, str(v))
                 cx += w_ * tw
             cv.drawString(x + 2, y, "TOTAL")

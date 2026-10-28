@@ -9,6 +9,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
+from . import sectors
 from .geo import deflection, haversine, valid_coord
 from .model import Cable, Design
 
@@ -74,7 +75,7 @@ def cable_length(d: Design, c: Cable) -> CableLength:
     end = r.cable_end_allowance_m if last > 0 else 0
     sag = r.sag_per_point_m * len(c.path)
     riser = risers * r.riser_per_pole_end_m
-    loops = ends + passing
+    loops = ends + passing if r.slack_per_cable_end_m or r.slack_per_passing_node_m else 0
     return CableLength(
         cable=c.id, kind=c.kind, cores=c.cores, status=c.status, route_m=route, extra_m=extra, end_m=end,
         sag_m=sag, riser_m=riser, rounded_m=_round_up(route + extra + end + sag + riser, r.cable_round_up_m),
@@ -130,10 +131,14 @@ def pole_summary(d: Design, include_unused: bool = False) -> list[PoleRow]:
     node_pole = {n.id: n.pole for n in d.nodes if n.pole}
     eq_poles = {n.pole for n in d.nodes if n.pole and n.kind != "SLACK"}
     rows = {p.id: PoleRow(p.id, p.lat, p.lon, p.status, p.type) for p in d.poles}
+    fibre = sectors.fibre_tools(d)
 
     for c in d.cables:
-        if c.install != "aerial" or len(c.path) < 2 or \
-                (c.status == "existing" and not r.accessories_on_existing_cables):
+        if len(c.path) < 2 or (c.status == "existing" and not r.accessories_on_existing_cables):
+            continue
+        # buried lines: other sectors list them at their manholes / marker posts, with no pole hardware
+        aerial = c.install == "aerial"
+        if not aerial and fibre:
             continue
         last = len(c.path) - 1
         run = 0  # J-hook poles since the last anchor on this cable
@@ -151,6 +156,8 @@ def pole_summary(d: Design, include_unused: bool = False) -> list[PoleRow]:
                 row.cables.append(c.id)
             if v.crossing:
                 row.crossings += 1
+            if not aerial:
+                continue
             if i in (0, last):
                 row.ends += 1
                 run = 0
@@ -202,18 +209,22 @@ def pole_summary(d: Design, include_unused: bool = False) -> list[PoleRow]:
             row.notes.append("Dead-end")
         if row.crossings:
             row.notes.append("Road crossing")
-        if row.jb:
-            row.notes.append("JB installed")
-        if row.enclosures:
-            row.notes.append("Splice enclosure")
-        if row.fats:
-            row.notes.append("FAT installed")
+        if fibre:
+            if row.jb:
+                row.notes.append("JB installed")
+            if row.enclosures:
+                row.notes.append("Splice enclosure")
+            if row.fats:
+                row.notes.append("FAT installed")
+        else:  # the equipment fitted here, in the sector's names
+            row.notes += [sectors.kind_label(d, e.split(":")[0]) for e in dict.fromkeys(
+                e.split(":")[0] + ":" for e in row.equipment)]
         if row.ext_arms:
             row.notes.append("Extension arm")
-        if not row.notes and row.cables:
+        if not row.notes and row.cables and (fibre or row.straight):
             row.notes.append("Straight")
         if row.status == "proposed":
-            row.notes.append("New pole")
+            row.notes.append("New pole" if fibre else f"New {sectors.get(d.info.sector)['support'].lower()}")
         pole = d.pole(row.pole)
         if pole and pole.notes:
             row.notes.append(pole.notes)
@@ -256,8 +267,10 @@ def bom(d: Design) -> list[BomLine]:
     qty: dict[str, float] = defaultdict(float)
     src: dict[str, str] = {}
 
+    fibre = sectors.fibre_tools(d)
+
     def add(code: str, n: float, source: str):
-        if n:
+        if n and code:  # an empty code: the sector has no such item (no J-hooks on a buried pipe)
             qty[code] += n
             src.setdefault(code, source)
 
@@ -267,11 +280,19 @@ def bom(d: Design) -> list[BomLine]:
     for n in d.nodes:
         if n.status == "proposed" and n.kind in r.node_codes:
             add(_fmt(r.node_codes[n.kind], ports=n.ports or r.default_fat_ports), 1, "Proposed equipment")
-    for s in d.splitters:  # splitters are always supplied new, also when fitted in an existing closure
+    for s in d.splitters if fibre else []:  # always supplied new, also when fitted in an existing closure
         add(_fmt(r.splitter_code, outputs=s.outputs), 1, f"Stage-{s.stage} splitters")
+    support = sectors.get(d.info.sector)["support"]
     for p in d.poles:
         if p.status == "proposed":
-            add(r.pole_code, 1, "Proposed poles")
+            add(r.pole_code, 1, f"Proposed {support.lower()}s")
+            for it in r.support_items:  # e.g. luminaires on a new lighting column
+                n = p.details.get(it.qty_detail, it.default_qty) if it.qty_detail else it.default_qty
+                try:
+                    n = float(n)
+                except (TypeError, ValueError):
+                    n = it.default_qty
+                add(_fmt(it.code, **{**it.defaults, **p.details}), n, f"Fitted to new {support.lower()}s")
     totals = {"upb": 0, "tension": 0, "jhook": 0, "pole": 0, "project": 1,
               "jb": sum(1 for n in d.nodes if n.kind == "JB" and n.status == "proposed"),
               "trunking_route": sum(1 for x in d.ducts if x.kind == "trunking" and len(x.path) >= 2),

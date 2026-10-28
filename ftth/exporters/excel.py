@@ -59,7 +59,36 @@ def _save(wb: Workbook) -> bytes:
     return buf.getvalue()
 
 
+def _sector_schedule_xlsx(d: Design, st: Stamp) -> bytes:
+    """Other sectors: the support schedule (manholes, marker posts, poles, columns) with the sector's hardware,
+    equipment and recorded details."""
+    from .. import sectors
+    sec = sectors.get(d.info.sector)
+    cols = sectors.schedule_columns(d.info.sector)
+    fields = sec["details"].get("pole", [])
+    wb = Workbook()
+    heads = [(f"{sec['support']} ID", 12), ("Latitude", 11), ("Longitude", 11), ("Status", 10),
+             (f"{sec['line']}s", 8), (f"{sec['line']} IDs", 18)] + [(h, 11) for _, h in cols] + \
+        [(f["label"] + (f" ({f['unit']})" if f["unit"] else ""), 12) for f in fields] + [("Notes", 40)]
+    ws = _sheet(wb, f"{sec['support']} Schedule"[:31], st, f"{sec['support']} Schedule - {d.info.name}", heads, True)
+    r = 5
+    for p in calc.pole_summary(d):
+        det = (d.pole(p.pole).details if d.pole(p.pole) else {})
+        _row(ws, r, [p.pole, p.lat, p.lon, p.status, len(p.cables), ", ".join(p.cables)] +
+             [getattr(p, k) for k, _ in cols] + [det.get(f["key"]) for f in fields] + ["; ".join(p.notes)],
+             fmt={2: "0.000000", 3: "0.000000"})
+        r += 1
+    first, last = 7, 6 + len(cols)
+    _row(ws, r, ["Total", None, None, None, Formula(f"=SUM(E5:E{r - 1})"), None] +
+         [Formula(f"=SUM({get_column_letter(c)}5:{get_column_letter(c)}{r - 1})") for c in range(first, last + 1)] +
+         [None] * (len(fields) + 1), bold=True, fill=SUB)
+    return _save(wb)
+
+
 def pole_summary_xlsx(d: Design, st: Stamp) -> bytes:
+    from .. import sectors
+    if not sectors.fibre_tools(d):
+        return _sector_schedule_xlsx(d, st)
     wb = Workbook()
     ws = _sheet(wb, "Pole Summary", st, f"Pole Summary - {d.info.name}", [
         ("Pole ID", 10), ("Latitude", 11), ("Longitude", 11), ("Status", 10), ("Cables", 8), ("Cable IDs", 18),
@@ -369,7 +398,8 @@ def report_xlsx(d: Design, st: Stamp) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Survey Report"
-    ws["A1"] = "FTTH SURVEY AND DESIGN REPORT"
+    from .. import sectors
+    ws["A1"] = sectors.get(d.info.sector)["report_title"].upper()
     ws["A1"].font = Font(bold=True, size=14, color="1F4E79")
     ws["A2"] = clean(f"{d.info.name} - {d.info.area}")
     ws["A3"] = clean(f"Prepared by: {d.info.prepared_by or '-'}   Date: {st.date}   Revision {st.revision} ({st.status})")

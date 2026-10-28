@@ -13,6 +13,7 @@ from django.db import models
 from django.db.models import Q
 
 from ftth.model import Design
+from ftth.sectors import CHOICES as SECTOR_CHOICES
 from ftth.standards import CHOICES as STANDARD_CHOICES
 
 
@@ -35,6 +36,9 @@ class Company(models.Model):
     email = models.EmailField(blank=True)
     website = models.URLField(blank=True)
     currency = models.CharField(max_length=8, default="KES")
+    sector = models.CharField(
+        max_length=20, default="fibre", choices=SECTOR_CHOICES,
+        help_text="The kind of network the company plans: names, materials and tools follow it")
     design_standard = models.CharField(
         max_length=40, default="system", blank=True, choices=STANDARD_CHOICES,
         help_text="Design style and construction rules every new project of the company starts with")
