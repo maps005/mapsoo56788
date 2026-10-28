@@ -131,7 +131,7 @@ body.ov #steps > li { min-height: 150px; }
 .ovtable { padding: 0 0 4px; overflow: auto; max-height: 330px; font-size: 12px; }
 .ovtable table { font-size: 12px; } .ovtable .more { padding: 4px 10px; color: var(--muted); font-size: 11.5px; }
 .lldbox { height: 290px; background: #000; position: relative; overflow: hidden; }
-.lldbox svg { width: 100%; height: 100%; display: block; cursor: grab; }
+.lldbox svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }  /* fills min-height too */
 .lldbox.big { height: calc(100vh - 300px); min-height: 420px; border-radius: 6px; }
 .card.dark { background: #0d1117; border-color: #24303f; color: #dbe4ee; } .card.dark h3 { color: #9cc4f2; }
 .card.dark .muted { color: #8b98a8; }
@@ -241,6 +241,20 @@ details.layers summary { cursor: pointer; padding: 3px 9px; border: 1px solid #3
 details.layers[open] > div { position: absolute; z-index: 50; top: 30px; left: 0; background: #121a24; border: 1px solid #33404f; border-radius: 6px; padding: 8px 10px; min-width: 200px; display: grid; gap: 4px; }
 details.layers label { color: #dbe4ee !important; font-size: 12px; }
 .lldbox.light { background: #fff; }
+/* drawing tab: drawing with the selection's properties beside it */
+.cadwrap { display: flex; gap: 8px; align-items: stretch; }
+.cadwrap .lldbox.big { flex: 1; min-width: 0; }
+.cadprops { width: 270px; flex: none; background: #121a24; border: 1px solid #24303f; border-radius: 6px; padding: 8px 10px;
+  color: #dbe4ee; overflow: auto; max-height: calc(100vh - 300px); font-size: 12.5px; }
+.cadprops h3, .cadprops h4 { margin: 2px 0 6px; color: #fff; }
+.cadprops .muted, .cadprops label { color: #aab6c3; }
+.cadprops input, .cadprops select, .cadprops textarea { background: #0b1118; color: #e6edf3; border-color: #33404f; }
+.cadprops table { color: #dbe4ee; }
+.cadattr { position: absolute; left: 6px; bottom: 4px; font-size: 10px; color: #cfd8dc; background: rgba(0,0,0,.45);
+  padding: 1px 5px; border-radius: 3px; pointer-events: none; }
+.lldbox.light .cadattr { color: #333; background: rgba(255,255,255,.7); }
+#cadAngle { width: 80px; }
+@media (max-width: 900px) { .cadwrap { flex-direction: column; } .cadprops { width: auto; max-height: none; } }
 .lldbox.light .lldleg, .lldbox.light .lldtb { background: rgba(255,255,255,.92); color: #111; border-color: #999; }
 @media print {
   body.printmap header, body.printmap #steps, body.printmap #tabs, body.printmap #toolbar, body.printmap aside#props,

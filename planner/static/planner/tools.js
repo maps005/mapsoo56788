@@ -6,7 +6,8 @@
 // ---------------------------------------------------------------------------
 // Settings (stored per user in this browser) and auto-design options
 // ---------------------------------------------------------------------------
-const PREF_DEFAULTS = { snap_m: 8, labels: true, drops: true, cad_dark: true, cad_grid: false, cad_text: 1, cad_off: [] };
+const PREF_DEFAULTS = { snap_m: 8, labels: true, drops: true, cad_dark: true, cad_grid: false, cad_text: 1, cad_off: [],
+  cad_map: "off", cad_snap: true, cad_ortho: false };
 const PREFS = (() => {
   try { return { ...PREF_DEFAULTS, ...JSON.parse(localStorage.getItem("ftth.prefs") || "{}") }; }
   catch (_) { return { ...PREF_DEFAULTS }; }

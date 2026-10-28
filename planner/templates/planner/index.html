@@ -136,6 +136,16 @@
         <button id="lldWin" title="Zoom window: drag a box">Window</button>
         <button id="lldMeasure" title="Measure: click two or more points">&#128207; Measure</button>
         <span class="sep"></span>
+        <button id="cadSelect" title="Select: click a feature (Shift+click adds); drag a box to select everything in it">Select</button>
+        <button id="cadMove" title="Move the selection: base point, then second point (M). Or drag a selected feature.">Move</button>
+        <button id="cadRotate" title="Rotate the selection: base point, then angle by click or typed (R)">Rotate</button>
+        <button id="cadDelete" title="Delete the selection (Del)">Delete</button>
+        <button id="cadUndo" title="Undo (Ctrl+Z)">&#8630;</button><button id="cadRedo" title="Redo (Ctrl+Y)">&#8631;</button>
+        <button id="cadSnap" title="Object snap to poles, equipment, premises and cable vertices (F3)">Snap</button>
+        <button id="cadOrtho" title="Ortho: moves only horizontal or vertical (F8)">Ortho</button>
+        <input id="cadAngle" type="number" step="any" placeholder="angle °" title="Rotation angle in degrees (counter-clockwise); Enter applies" hidden>
+        <span class="sep"></span>
+        <label class="muted">Map <select id="cadMap"><option value="off">Off</option><option value="streets">Streets</option><option value="satellite">Satellite</option></select></label>
         <details class="layers"><summary>Layers</summary><div id="lldLayers"></div></details>
         <label class="muted">Text <input type="range" id="lldText" min="0.5" max="2.5" step="0.1"></label>
         <label class="muted"><input type="checkbox" id="lldGrid"> Grid</label>
@@ -145,7 +155,7 @@
         <button id="lldPrint" title="Print the drawing">Print</button>
         <span class="spacer"></span><span id="lldCoord" class="muted coordtxt">-</span>
       </div>
-      <div id="lldBig" class="lldbox big"></div>
+      <div class="cadwrap"><div id="lldBig" class="lldbox big"></div><aside id="cadProps" class="cadprops" hidden></aside></div>
       <div id="lldMsg" class="muted"></div>
       <p class="muted">Same data as the DXF and the A3 PDF sheets. Open the DXF in AutoCAD and save as DWG if a native DWG file is required.</p>
     </div>

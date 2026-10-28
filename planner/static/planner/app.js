@@ -72,6 +72,7 @@ function changed(rerenderMap = true) {
   clearTimeout(S.timer); S.timer = setTimeout(save, 600);
   if (rerenderMap) renderMap();
   renderProps();
+  if (activeTab() === "lld" && typeof renderLld === "function") renderLld();  // edits made in the drawing tab
 }
 
 async function save() {
@@ -177,17 +178,16 @@ function syncNodePole(node) {
   for (const c of S.D.cables) for (const v of c.path) if (v.node === node.id) v.pole = node.pole || null;
 }
 
-function deleteSelected() {
-  if (!S.sel) return toast("Nothing selected");
-  const { type, id } = S.sel;
+// Remove one feature and what belongs to it; returns why it cannot be removed, or null when it was
+function deleteFeature(type, id) {
   if (type === "pole") {
     const users = S.D.cables.filter((c) => c.path.some((v) => v.pole === id)).map((c) => c.id);
     const nodes = S.D.nodes.filter((n) => n.pole === id).map((n) => n.id);
-    if (users.length || nodes.length) return toast(`Pole ${id} is used by ${[...users, ...nodes].join(", ")}. Remove those first.`, 6000);
+    if (users.length || nodes.length) return `Pole ${id} is used by ${[...users, ...nodes].join(", ")}. Remove those first.`;
   }
   if (type === "node") {
     const users = S.D.cables.filter((c) => c.from_node === id || c.to_node === id || c.path.some((v) => v.node === id)).map((c) => c.id);
-    if (users.length) return toast(`${id} is connected to cables ${users.join(", ")}. Delete those first.`, 6000);
+    if (users.length) return `${id} is connected to cables ${users.join(", ")}. Delete those first.`;
     const spl = S.D.splitters.filter((s) => s.node === id).map((s) => s.id);
     S.D.splitters = S.D.splitters.filter((s) => s.node !== id);
     S.D.connections = S.D.connections.filter((c) => c.node !== id && ![c.a, c.b].some((e) => spl.includes(e.ref)));
@@ -195,6 +195,13 @@ function deleteSelected() {
   }
   if (type === "cable") S.D.connections = S.D.connections.filter((x) => ![x.a, x.b].some((e) => e.kind === "cable" && e.ref === id));
   S.D[collOf[type]] = S.D[collOf[type]].filter((x) => x.id !== id);
+  return null;
+}
+
+function deleteSelected() {
+  if (!S.sel) return toast("Nothing selected");
+  const why = deleteFeature(S.sel.type, S.sel.id);
+  if (why) return toast(why, 6000);
   S.sel = null; changed();
 }
 
@@ -405,6 +412,7 @@ map.on("click", (e) => mapClick(e));
 map.on("dblclick", () => { if (S.mode === "cable" || S.mode === "boundary") finishDraw(); });
 document.addEventListener("keydown", (e) => {
   if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
+  if (activeTab() === "lld") return;  // the drawing tab has its own keys (cadKeys in overview.js)
   if (e.key === "Enter" && S.draw.length) finishDraw();
   if (e.key === "Escape") { S.draw = []; renderMap(); }
   if (e.key === "Delete" && S.sel) deleteSelected();
@@ -480,10 +488,14 @@ function detailInput(d, value) {
 }
 
 function renderProps() {
-  const el = $("#props");
+  renderPropsInto($("#props"));
+  if (activeTab() === "lld" && typeof renderCadProps === "function") renderCadProps();  // the drawing tab's panel
+}
+
+function renderPropsInto(el) {
   if (!S.D || !S.sel) { el.innerHTML = `<p class="muted">Select a feature to edit it.</p>${summaryHtml()}`; return; }
   const { type, id } = S.sel, obj = find(type, id);
-  if (!obj) { S.sel = null; return renderProps(); }
+  if (!obj) { S.sel = null; return renderPropsInto(el); }
   const t = S.st?.sector, fibre = !t || t.fibre_tools;
   const issues = (S.st?.issues || []).filter((i) => i.ref === id);
   const title = fibre ? (type === "node" ? obj.kind : type[0].toUpperCase() + type.slice(1))
