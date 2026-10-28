@@ -11,6 +11,7 @@ from reportlab.lib.pagesizes import A3, A4, landscape
 from reportlab.lib.enums import TA_JUSTIFY, TA_RIGHT
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import (BaseDocTemplate, CondPageBreak, Frame, HRFlowable, Image, KeepTogether,
                                 ListFlowable, ListItem, NextPageTemplate, PageBreak, PageTemplate, Paragraph,
@@ -22,6 +23,7 @@ from ..geo import LocalProjection, haversine, valid_coord
 from ..model import Design
 from . import report
 from .common import KIND_COLOURS, NODE_LABEL, Stamp, logo_size, markup, photo_path
+from .labels import LabelPlacer, route_anchors, stacked
 
 C = lambda h: colors.HexColor(h)  # noqa: E731
 STYLES = getSampleStyleSheet()
@@ -48,6 +50,28 @@ def _map_points(d: Design) -> list[tuple[float, float]]:
         pts = [(p.lat, p.lon) for p in d.poles if valid_coord(p.lat, p.lon)]
         pts += [(v.lat, v.lon) for c in d.cables for v in c.path]
     return pts
+
+
+class _Labels(LabelPlacer):
+    """Map labels on a PDF sheet: placed by LabelPlacer in points, drawn with reportlab."""
+
+    def __init__(self, x0, y0, w, h):
+        super().__init__(24.0, (x0, y0, x0 + w, y0 + h))
+
+    def place_text(self, cv, text, x, y, font, size, r, fill, anchors=None, optional=False):
+        """Draw text near (x, y) (or at the first free of several anchor points, e.g. along a cable)."""
+        # the box is the whole line: descender to the top of capitals and accents (about 1.15 x the font size)
+        at = self.place(stringWidth(text, font, size), size * 1.15, r, anchors or [(x, y)], optional)
+        if at is None:
+            return
+        left, bottom, leader = at
+        cv.setFillColor(fill)
+        if leader:  # the label sits away from its point
+            cv.setStrokeColor(fill)
+            cv.setLineWidth(0.3)
+            cv.line(*leader)
+        cv.setFont(font, size)
+        cv.drawString(left, bottom + size * 0.22, text)  # baseline above the descender
 
 
 def _draw_map(cv, d: Design, x0, y0, w, h, detail: bool, window=None, light: bool = False):
@@ -112,35 +136,32 @@ def _draw_map(cv, d: Design, x0, y0, w, h, detail: bool, window=None, light: boo
     cv.setDash()
 
     lengths = {cl.cable: cl for cl in calc.cable_lengths(d)}
+    lines = []  # (cable, page points) for the cable tags
     for c in d.cables:
         if len(c.path) < 2:
             continue
         cv.setStrokeColor(C(KIND_COLOURS[c.kind]))
         cv.setLineWidth(2.4 if c.kind == "main" else 1.6 if c.kind == "spur" else 0.8)
         pp = cv.beginPath()
-        for i, v in enumerate(c.path):
-            (pp.moveTo if i == 0 else pp.lineTo)(*T(v.lat, v.lon))
+        pts_ = [T(v.lat, v.lon) for v in c.path]
+        for i, xy in enumerate(pts_):
+            (pp.moveTo if i == 0 else pp.lineTo)(*xy)
         cv.drawPath(pp, stroke=1, fill=0)
-        if detail:
-            m = len(c.path) // 2
-            ax, ay = T(c.path[m - 1].lat, c.path[m - 1].lon)
-            bx, by = T(c.path[m].lat, c.path[m].lon)
-            cl = lengths.get(c.id)
-            cv.setFillColor(C(KIND_COLOURS[c.kind]))
-            cv.setFont("Helvetica-Bold", 6)
-            cv.drawString((ax + bx) / 2 + 3, (ay + by) / 2 + 3,
-                          f"{c.id} {c.cores}C {cl.total_m:.0f}m" if cl else c.id)
+        lines.append((c, pts_))
 
+    # symbols first, so no label is drawn over a symbol; labels after, most important first
+    labels = _Labels(x0, y0, w, h)
+    for _, pts_ in lines:
+        labels.block_line(pts_, 4)
+    home_xy, pole_xy, node_xy = [], [], []
     for hm in d.homes:
         if valid_coord(hm.lat, hm.lon):
             X, Y = T(hm.lat, hm.lon)
             cv.setFillColor(C(KIND_COLOURS["home"]))
             s = 3.2 if hm.kind == "mdu" else 2.4
             cv.rect(X - s, Y - s, 2 * s, 2 * s, stroke=0, fill=1)
-            if detail:
-                cv.setFillColor(label)
-                cv.setFont("Helvetica", 4.5)
-                cv.drawString(X + 4, Y - 2, hm.id + (f" ({hm.units})" if hm.units > 1 else ""))
+            labels.block(X, Y, s)
+            home_xy.append((hm, X, Y, s))
 
     for pl in d.poles:
         if valid_coord(pl.lat, pl.lon):
@@ -149,16 +170,20 @@ def _draw_map(cv, d: Design, x0, y0, w, h, detail: bool, window=None, light: boo
             cv.setStrokeColor(label)
             cv.setLineWidth(0.5)
             cv.circle(X, Y, 2.6, stroke=1 if pl.status == "proposed" else 0, fill=1)
-            if detail:
-                cv.setFillColor(C("#1a5fb4") if light else C("#99c1f1"))
-                cv.setFont("Helvetica", 5)
-                cv.drawString(X + 3.5, Y + 2, pl.id)
+            labels.block(X, Y, 2.6)
+            pole_xy.append((pl, X, Y))
 
+    placed: list[tuple[float, float]] = []  # equipment symbols drawn so far
     for n in d.nodes:
         lat, lon = d.node_position(n)
         if not valid_coord(lat, lon):
             continue
-        X, Y = T(lat, lon)
+        X0, Y0 = T(lat, lon)
+        X, Y = stacked(placed, X0, Y0, 8, 9.5)
+        if (X, Y) != (X0, Y0):
+            cv.setStrokeColor(label)
+            cv.setLineWidth(0.3)
+            cv.line(X0, Y0, X, Y)
         cv.setFillColor(C(KIND_COLOURS[n.kind]))
         cv.setStrokeColor(label)
         cv.setLineWidth(0.6)
@@ -168,10 +193,24 @@ def _draw_map(cv, d: Design, x0, y0, w, h, detail: bool, window=None, light: boo
             cv.drawPath(tp, stroke=1, fill=1)
         else:
             cv.rect(X - 4, Y - 4, 8, 8, stroke=1, fill=1)
-        cv.setFillColor(label)
-        cv.setFont("Helvetica-Bold", 6)
-        cv.drawString(X + 6, Y - 2, n.id + (" " + ",".join(s.ratio for s in d.splitters if s.node == n.id)
-                                            if detail and any(s.node == n.id for s in d.splitters) else ""))
+        labels.block(X, Y, 4.5)
+        node_xy.append((n, X, Y))
+
+    for n, X, Y in node_xy:
+        labels.place_text(cv, n.id + (" " + ",".join(s.ratio for s in d.splitters if s.node == n.id)
+                                      if detail and any(s.node == n.id for s in d.splitters) else ""),
+                          X, Y, "Helvetica-Bold", 6, 4.5, label, optional=not detail)  # overview: where room
+    if detail:
+        for c, pts_ in lines:  # tag at the free-most segment midpoint, starting from the middle of the route
+            cl = lengths.get(c.id)
+            labels.place_text(cv, f"{c.id} {c.cores}C {cl.total_m:.0f}m" if cl else c.id, *pts_[0], "Helvetica-Bold",
+                              6, 1.5, C(KIND_COLOURS[c.kind]), anchors=route_anchors(pts_), optional=c.kind == "drop")
+        for hm, X, Y, s in home_xy:
+            labels.place_text(cv, hm.id + (f" ({hm.units})" if hm.units > 1 else ""), X, Y, "Helvetica", 4.5, s, label,
+                              optional=True)
+        for pl, X, Y in pole_xy:
+            labels.place_text(cv, pl.id, X, Y, "Helvetica", 5, 2.6, C("#1a5fb4") if light else C("#99c1f1"),
+                              optional=True)
     cv.restoreState()
     return scale
 
@@ -456,28 +495,33 @@ def _schematic(cv, d: Design, x, y, w, h):
         port = next((st_["to"].split(" OUT ")[1] for st_ in t["steps"] if " OUT " in st_["to"]), None)
         labels[s.id] = ((f"OUT {port} > " if port else "") + (cores[0] if cores else "")) if t["ok"] else ""
 
-    def link_label(ax, ay, bx, by, text):
+    cols = [x + 10, x + w * 0.38, x + w * 0.72]
+    step2 = min(44, (h - 60) / max(len(s2), 1))  # one row per 2nd-stage splitter
+    bh = min(18.0, max(step2 - 2, 4.0))          # boxes and text shrink so neighbouring rows never touch
+    fs = min(6.5, max(bh * 0.6, 3.0))
+
+    def link_label(bx, by, text):
+        """The fibre feeding a box, on the box's own row just before it: lines fanning out of one splitter meet
+        in the middle, so labels there would print over each other."""
         if text:
             cv.setFillColor(colors.black)
-            cv.setFont("Helvetica", 6.5)
-            cv.drawCentredString((ax + bx) / 2, (ay + by) / 2 + 3, text)
-    cols = [x + 10, x + w * 0.38, x + w * 0.72]
+            cv.setFont("Helvetica", fs)
+            cv.drawRightString(bx - 4, by + 1.5, text)
     cv.setFont("Helvetica-Bold", 9)
     for cx_, label in zip(cols, ("POP / OLT", "1st stage (PON)", "2nd stage (FAT)")):
         cv.drawString(cx_, y + h - 12, label)
 
-    def box(bx, by, text, col):
+    def box(bx, by, text, col, height=18.0):
         cv.setFillColor(C(col)); cv.setStrokeColor(colors.black)
-        cv.roundRect(bx, by - 9, 110, 18, 3, stroke=1, fill=1)
-        cv.setFillColor(colors.white); cv.setFont("Helvetica-Bold", 7.5)
-        cv.drawString(bx + 5, by - 3, text)
+        cv.roundRect(bx, by - height / 2, 110, height, min(3, height / 4), stroke=1, fill=1)
+        cv.setFillColor(colors.white); cv.setFont("Helvetica-Bold", min(7.5, height * 0.45))
+        cv.drawString(bx + 5, by - height * 0.17, text)
 
     pos = {}
     for i, p in enumerate(pops):
         yy = y + h - 40 - i * 30
         box(cols[0], yy, p.id, KIND_COLOURS["POP"])
         pos[p.id] = (cols[0] + 110, yy)
-    step2 = min(44, (h - 60) / max(len(s2), 1))
     for i, s in enumerate(s1):
         yy = y + h - 40 - i * max(44, step2 * 4)
         box(cols[1], yy, f"{s.node} {s.ratio}", KIND_COLOURS["PON"])
@@ -485,23 +529,24 @@ def _schematic(cv, d: Design, x, y, w, h):
         if feeds[s.id][1] and pops:
             cv.setStrokeColor(C(KIND_COLOURS["main"])); cv.setLineWidth(1.4)
             cv.line(*pos[pops[0].id], cols[1], yy)
-            link_label(*pos[pops[0].id], cols[1], yy, labels[s.id])
+            link_label(cols[1], yy, labels[s.id])
+    load = calc.fat_load(d)
     for i, s in enumerate(s2):
         yy = y + h - 40 - i * step2
         up, ok = feeds[s.id]
-        box(cols[2], yy, f"{s.node} {s.ratio}", KIND_COLOURS["FAT"] if ok else "#77767b")
+        box(cols[2], yy, f"{s.node} {s.ratio}", KIND_COLOURS["FAT"] if ok else "#77767b", bh)
         if up and up in pos:
             cv.setStrokeColor(C(KIND_COLOURS["spur"])); cv.setLineWidth(1.2)
             cv.line(pos[up][0] + 110, pos[up][1], cols[2], yy)
-            link_label(pos[up][0] + 110, pos[up][1], cols[2], yy, labels[s.id])
-        cv.setFillColor(colors.black); cv.setFont("Helvetica", 6.5)
+            link_label(cols[2], yy, labels[s.id])
+        cv.setFillColor(colors.black); cv.setFont("Helvetica", fs)
         node = d.node(s.node)
-        hp = calc.fat_load(d).get(s.node, 0)
+        hp = load.get(s.node, 0)
         ports = (node.ports if node and node.ports else d.rules.default_fat_ports)
-        cv.drawString(cols[2] + 114, yy - 3, f"> {hp} HPs on FAT ({ports} ports)" if ok else "")
+        cv.drawString(cols[2] + 114, yy - fs * 0.4, f"> {hp} HPs on FAT ({ports} ports)" if ok else "")
         if not ok:
-            cv.setFillColor(colors.red); cv.setFont("Helvetica", 7)
-            cv.drawString(cols[2] + 114, yy - 3, "NOT FED")
+            cv.setFillColor(colors.red); cv.setFont("Helvetica", min(7, fs + 0.5))
+            cv.drawString(cols[2] + 114, yy - fs * 0.4, "NOT FED")
 
 
 def splicing_pdf(d: Design, st: Stamp) -> bytes:

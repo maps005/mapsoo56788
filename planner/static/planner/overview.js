@@ -260,28 +260,39 @@ function drawLld(box, big) {
     const f = fats[h.fat];
     if (f && okc(h) && okc(f)) { const a = xy(h.lat, h.lon), b = xy(f.lat, f.lon); el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: "#5e6b78", "stroke-dasharray": "3 3", ...stroke(0.8) }, Lg.drops); }
   }
+  const lab = labelPlacer(r * 12);
   for (const c of byDrawOrder(D.cables)) {
     if (c.path.length < 2) continue;
     const lay = c.status === "existing" ? Lg.existing : c.kind === "main" ? Lg.main : Lg.spur;
-    el("polyline", { points: c.path.map((v) => xy(v.lat, v.lon).join(",")).join(" "),
+    const pts = c.path.map((v) => xy(v.lat, v.lon));
+    el("polyline", { points: pts.map((p) => p.join(",")).join(" "),
       stroke: c.status === "existing" ? "#7d8a96" : c.kind === "main" ? "#ff2a2a" : c.kind === "spur" ? (dark ? "#ffd60a" : "#d4a300") : "#3ddc84",
       ...stroke(c.status === "existing" ? 1.2 : c.kind === "main" ? 3.4 : 1.6) }, lay);
+    lab.line(pts, r * 1.5);
   }
   for (const h of D.homes) {
     if (!okc(h)) continue;
     const [x, y] = xy(h.lat, h.lon), s = r * (h.kind === "mdu" ? 2.6 : 1.6);
     el("rect", { x: x - s, y: y - s * 0.7, width: 2 * s, height: 1.4 * s, stroke: "#e040fb", ...stroke(1) }, Lg.buildings);
+    lab.block(x, y, s);
   }
   for (const p of D.poles) {
     if (!okc(p)) continue;
     const [x, y] = xy(p.lat, p.lon);
     el("circle", { cx: x, cy: y, r: r * 0.9, fill: "#2f80ff", stroke: p.status === "proposed" ? fg : "none", "stroke-width": 1, "vector-effect": "non-scaling-stroke" }, Lg.poles);
+    lab.block(x, y, r * 0.9);
   }
   const ts = r * (big ? 2.4 : 3.2) * (big ? P.cad_text : 1);
   Lg.labels.setAttribute("font-family", "Arial, sans-serif"); Lg.labels.setAttribute("font-size", ts); Lg.labels.setAttribute("fill", fg);
+  const placed = [], toLabel = [];
   for (const n of D.nodes) {
     if (!okc(n)) continue;
-    const [x, y] = xy(n.lat, n.lon), s = r * 2.2;
+    const [x0, y0] = xy(n.lat, n.lon), s = r * 2.2;
+    let x = x0, y = y0;
+    while (placed.some(([px, py]) => Math.abs(px - x) < s * 1.6 && Math.abs(py - y) < s * 1.6)) y += s * 2.3;  // same pole: stack
+    if (y !== y0) el("line", { x1: x0, y1: y0, x2: x, y2: y, stroke: fg, ...stroke(0.6) }, Lg.equipment);
+    placed.push([x, y]);
+    lab.block(x, y, s);
     const col = { FAT: "#ff2a2a", JB: "#c77dff", ENCLOSURE: "#ff9f1c", PR_ENCLOSURE: "#ff9f1c", PON: "#ff4fd8", POP: "#a06cd5", SLACK: "#3ddc84" }[n.kind];
     const g = Lg.equipment;
     if (n.kind === "FAT") el("polygon", { points: `${x},${y - s} ${x + s},${y + s * 0.8} ${x - s},${y + s * 0.8}`, fill: col }, g);
@@ -289,15 +300,24 @@ function drawLld(box, big) {
     else if (n.kind === "PON") el("polygon", { points: star(x, y, s * 1.2, s * 0.5), fill: col }, g);
     else if (n.kind === "SLACK") el("circle", { cx: x, cy: y, r: s * 0.8, stroke: col, ...stroke(1.5) }, g);
     else el("rect", { x: x - s * 0.9, y: y - s * 0.9, width: s * 1.8, height: s * 1.8, fill: col }, g);
-    if (big || ["POP", "PON", "ENCLOSURE"].includes(n.kind)) { const t = el("text", { x: x + s * 1.3, y: y - s * 0.4 }, Lg.labels); t.textContent = n.id; }
+    if (big || ["POP", "PON", "ENCLOSURE"].includes(n.kind)) toLabel.push([n, x, y, s]);
   }
+  const text = (layer, pos, attrs, content) => {
+    if (pos.leader) { const [a, b, c2, d2] = pos.leader; el("line", { x1: a, y1: b, x2: c2, y2: d2, stroke: attrs.fill || fg, ...stroke(0.5) }, layer); }
+    el("text", { x: pos.x, y: pos.y, ...attrs }, layer).textContent = content;
+  };
+  for (const [n, x, y, s] of toLabel) text(Lg.labels, lab.place(n.id, ts, s, [[x, y]]), {}, n.id);
   if (big) {
     Lg.tags.setAttribute("font-family", "Arial, sans-serif");
-    for (const c of D.cables) {  // cable tags at mid-route
+    const tsz = r * 2 * P.cad_text;
+    for (const c of D.cables) {  // cable tags: the free-most segment midpoint, starting from mid-route
       if (c.status !== "proposed" || c.path.length < 2) continue;
-      const v = c.path[Math.floor(c.path.length / 2)], [x, y] = xy(v.lat, v.lon);
-      const t = el("text", { x: x + r, y: y + r * 3, fill: c.kind === "main" ? "#ff6b6b" : (dark ? "#ffe680" : "#9a7400"), "font-size": r * 2 * P.cad_text }, Lg.tags);
-      t.textContent = `${c.id} ${c.cores}C`;
+      const pts = c.path.map((v) => xy(v.lat, v.lon));
+      const mids = pts.slice(1).map((p, k) => [(p[0] + pts[k][0]) / 2, (p[1] + pts[k][1]) / 2]), m = Math.floor(mids.length / 2);
+      const order = mids.map((_, k) => k).sort((a, b) => Math.abs(a - m) - Math.abs(b - m)).map((k) => mids[k]);
+      const label = `${c.id} ${c.cores}C`;
+      text(Lg.tags, lab.place(label, tsz, r * 0.8, order),
+        { fill: c.kind === "main" ? "#ff6b6b" : (dark ? "#ffe680" : "#9a7400"), "font-size": tsz }, label);
     }
   }
   el("g", { id: big ? "cadOverlay" : "", "font-family": "Arial, sans-serif" }, svg);
@@ -318,6 +338,53 @@ function drawLld(box, big) {
     <div>REV ${S.st?.revision ?? 0} · ${esc(i.design_status.toUpperCase())}</div><div class="cad">AutoCAD · DXF</div>`;
   box.appendChild(tb);
   if (big) { CAD.proj = pr; cadTools(svg); }
+}
+
+// Label placement for the drawing (same rules as the PDF sheets, ftth/exporters/pdf.py _Labels): try around
+// the point (right, left, below, above, diagonals), then further out with a leader line; symbols, other labels
+// and (less strongly) cable lines are avoided. Units are drawing metres; y grows downwards.
+function labelPlacer(cell) {
+  const grid = new Map();
+  const cells = (b, f) => { for (let i = Math.floor(b[0] / cell); i <= Math.floor(b[2] / cell); i++) for (let j = Math.floor(b[1] / cell); j <= Math.floor(b[3] / cell); j++) f(i + "," + j); };
+  const add = (b, wt = 1) => { const o = [b, wt]; cells(b, (k) => { if (!grid.has(k)) grid.set(k, []); grid.get(k).push(o); }); };
+  const cost = (b) => {
+    let c = 0; const seen = new Set();
+    cells(b, (k) => (grid.get(k) || []).forEach((o) => {
+      if (seen.has(o)) return; seen.add(o);
+      const [q, wt] = o, ix = Math.min(b[2], q[2]) - Math.max(b[0], q[0]), iy = Math.min(b[3], q[3]) - Math.max(b[1], q[1]);
+      if (ix > 0 && iy > 0) c += ix * iy * wt;
+    }));
+    return c;
+  };
+  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+  return {
+    block: (x, y, r) => add([x - r, y - r, x + r, y + r]),
+    line: (pts, step) => pts.forEach((a, k) => {
+      if (!k) return;
+      const b = pts[k - 1], n = Math.max(1, Math.floor(Math.hypot(a[0] - b[0], a[1] - b[1]) / step));
+      for (let t = 0; t <= n; t++) { const x = b[0] + (a[0] - b[0]) * t / n, y = b[1] + (a[1] - b[1]) * t / n; add([x - step / 4, y - step / 4, x + step / 4, y + step / 4], 0.3); }
+    }),
+    // returns {x, y (baseline), leader: [x1, y1, x2, y2] | null}
+    place(text, size, r, anchors) {
+      const w = text.length * size * 0.58, h = size, free = size * size * 0.05;
+      let best = null;
+      for (let ring = 0; ring < 3 && !(best && best.c < free); ring++) {
+        const dist = r + size * 0.25 + ring * (h + size * 0.5);
+        for (const [ax, ay] of anchors) {
+          for (const [ux, uy] of DIRS) {
+            const left = ux > 0 ? ax + dist * ux : ux < 0 ? ax + dist * ux - w : ax - w / 2;
+            const top = uy > 0 ? ay + dist * uy : uy < 0 ? ay + dist * uy - h : ay - h / 2;
+            const b = [left, top, left + w, top + h], c = cost(b) + ring * 1e-6;
+            if (!best || c < best.c) best = { c, b, ring, ax, ay };
+          }
+          if (best.c < free) break;
+        }
+      }
+      add(best.b);
+      const [l, t, rr, bt] = best.b;
+      return { x: l, y: bt - h * 0.18, leader: best.ring ? [best.ax, best.ay, Math.min(Math.max(best.ax, l), rr), Math.min(Math.max(best.ay, t), bt)] : null };
+    },
+  };
 }
 
 function star(cx, cy, ro, ri) {
