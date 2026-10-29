@@ -43,13 +43,15 @@ function mats() {
   const m = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0, ...o });
   Object.assign(MAT, { wall: m(0xe8e4dc), wallInt: m(0xf4f1ea), slab: m(0xb9bec4), glass: m(0x8fc4e8, { transparent: true, opacity: 0.45 }),
     door: m(0x9a6a3f), roofSheet: m(0x5e6b78, { side: THREE.DoubleSide }), roofTile: m(0x8a4b38, { side: THREE.DoubleSide }),
-    stair: m(0xa9adb3), column: m(0x8d949c), sel: m(0x00b7ff, { emissive: 0x003a55 }), ghost: m(0x00b7ff, { transparent: true, opacity: 0.35 }) });
+    stair: m(0xa9adb3), column: m(0x8d949c), cut: m(0x3b4148), sel: m(0x00b7ff, { emissive: 0x003a55 }), ghost: m(0x00b7ff, { transparent: true, opacity: 0.35 }) });
   return MAT;
 }
+let UNIT_BOX = null;  // one 1 m box, scaled, for every wall piece, step and column: a tower has thousands of them
+const unitBox = () => UNIT_BOX || (UNIT_BOX = new THREE.BoxGeometry(1, 1, 1).toNonIndexed());
 function boxAlong(a, b, s0, s1, z0, z1, t, mat) {  // part of a wall a->b between s0, s1 (m) and heights z0, z1
   const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, ux = (b[0] - a[0]) / L, uy = (b[1] - a[1]) / L;
-  const g = new THREE.BoxGeometry(Math.max(s1 - s0, 0.001), Math.max(z1 - z0, 0.001), t);
-  const mesh = new THREE.Mesh(g, mat);
+  const mesh = new THREE.Mesh(unitBox(), mat);
+  mesh.scale.set(Math.max(s1 - s0, 0.001), Math.max(z1 - z0, 0.001), t);
   const cx = a[0] + ux * (s0 + s1) / 2, cy = a[1] + uy * (s0 + s1) / 2;
   mesh.position.set(cx, (z0 + z1) / 2, -cy);
   mesh.rotation.y = Math.atan2(uy, ux);
@@ -57,10 +59,10 @@ function boxAlong(a, b, s0, s1, z0, z1, t, mat) {  // part of a wall a->b betwee
 }
 function tag(mesh, type, id) { mesh.userData = { type, id }; return mesh; }
 
-function wallMeshes(b, w, group) {
+function wallMeshes(b, w, group, opsByWall, cut) {  // cut: a plan, where walls are drawn dark against the floor
   const M = mats(), L = wallLen(w), base = lvlOf(b, w.level).elevation, H = wallH(b, w);
-  const mat = w.kind === "external" ? M.wall : M.wallInt;
-  const ops = b.openings.filter((o) => o.wall === w.id).sort((p, q) => p.offset - q.offset);
+  const mat = cut ? M.cut : w.kind === "external" ? M.wall : M.wallInt;
+  const ops = (opsByWall.get(w.id) || []).sort((p, q) => p.offset - q.offset);
   let s = 0;
   for (const o of ops) {
     const s0 = Math.max(0, o.offset - o.width / 2), s1 = Math.min(L, o.offset + o.width / 2);
@@ -130,19 +132,61 @@ function stairMeshes(b, st, group) {
 function buildingGroup(b, maxLevel, only = null) {  // only: a plan of that one level (no roof, nothing above)
   const g = new THREE.Group(), M = mats();
   const show = (lv) => only === null ? lv <= maxLevel : lv === only;
-  for (const w of b.walls) if (show(w.level)) wallMeshes(b, w, g);
+  const opsByWall = new Map();
+  for (const o of b.openings) (opsByWall.get(o.wall) || opsByWall.set(o.wall, []).get(o.wall)).push(o);
+  for (const w of b.walls) if (show(w.level)) wallMeshes(b, w, g, opsByWall, only !== null);
   for (const sl of b.slabs) {  // the roof slab of a flat roof only with the top floor, never in a plan
     const roofSlab = sl.level >= b.levels.length;
     if (roofSlab ? only === null && maxLevel >= b.levels.length - 1 : show(sl.level)) g.add(slabMesh(b, sl));
   }
   for (const st of b.stairs) if (show(st.level)) stairMeshes(b, st, g);
   for (const c of b.columns) if (show(c.level)) {
-    const lv = lvlOf(b, c.level), m = new THREE.Mesh(new THREE.BoxGeometry(c.size, lv.height, c.size), M.column);
+    const lv = lvlOf(b, c.level), m = new THREE.Mesh(unitBox(), M.column);
+    m.scale.set(c.size, lv.height, c.size);
     m.position.set(c.x, lv.elevation + lv.height / 2, -c.y);
     g.add(tag(m, "column", c.id));
   }
   if (only === null && maxLevel >= b.levels.length - 1) for (const r of b.roofs) { const m = roofMesh(b, r); if (m) g.add(m); }
   return g;
+}
+
+// One mesh per material for the view: a tower is thousands of boxes, and a draw call each made it crawl (25
+// floors: 7,600 calls, 7 fps). Each merged mesh keeps its parts' triangle ranges, so a click still finds the
+// wall, opening, slab... it hit (partAt). Exports keep the separate, tagged meshes.
+function batchGroup(g) {
+  const byMat = new Map(), out = new THREE.Group();
+  g.updateMatrixWorld(true);
+  for (const o of g.children) if (o.isMesh) (byMat.get(o.material) || byMat.set(o.material, []).get(o.material)).push(o);
+  const v = new THREE.Vector3(), nm = new THREE.Matrix3();
+  for (const [mat, list] of byMat) {
+    const geos = list.map((o) => o.geometry.index ? o.geometry.toNonIndexed() : o.geometry);
+    const n = geos.reduce((a, x) => a + x.attributes.position.count, 0);
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), parts = [];
+    let k = 0;
+    geos.forEach((x, i) => {
+      const P = x.attributes.position, N = x.attributes.normal, M = list[i].matrixWorld;
+      nm.getNormalMatrix(M);
+      for (let j = 0; j < P.count; j++, k++) {
+        v.fromBufferAttribute(P, j).applyMatrix4(M); pos[k * 3] = v.x; pos[k * 3 + 1] = v.y; pos[k * 3 + 2] = v.z;
+        v.fromBufferAttribute(N, j).applyMatrix3(nm).normalize(); nor[k * 3] = v.x; nor[k * 3 + 1] = v.y; nor[k * 3 + 2] = v.z;
+      }
+      parts.push({ end: k / 3, type: list[i].userData.type, id: list[i].userData.id });  // end: first triangle after it
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+    const m = new THREE.Mesh(geo, mat);
+    m.userData.parts = parts;
+    out.add(m);
+  }
+  return out;
+}
+function partAt(hit) {  // the {type, id} of the part of a merged mesh that a ray hit
+  const p = hit.object.userData.parts;
+  if (!p) return { type: hit.object.userData.type, id: hit.object.userData.id };
+  let lo = 0, hi = p.length - 1;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (p[mid].end > hit.faceIndex) hi = mid; else lo = mid + 1; }
+  return { type: p[lo].type, id: p[lo].id };
 }
 
 // ---- view ------------------------------------------------------------------------------------------------
@@ -189,7 +233,8 @@ function extent(b) {
 }
 function fit() {
   const e = extent(S.D.building), t = new THREE.Vector3(e.cx, e.top / 2, -e.cy);
-  BLD.cam3d.position.set(e.cx + e.size * 1.1, e.top + e.size * 0.9, -e.cy + e.size * 1.3);
+  const r = Math.hypot(e.size, e.top) / 2 * 1.15;  // the whole building in view, a bungalow or a tower
+  BLD.cam3d.position.copy(t).addScaledVector(new THREE.Vector3(1.1, 0.9, 1.3).normalize(), r / Math.sin(BLD.cam3d.fov * Math.PI / 360));
   BLD.controls.target.copy(t);
   const elev = lvlOf(S.D.building, BLD.level).elevation;
   BLD.camPlan.position.set(e.cx, elev + 200, -e.cy);
@@ -216,10 +261,11 @@ function rebuild() {
   if (!b || !BLD.scene) return;
   if (BLD.root) { BLD.scene.remove(BLD.root); BLD.root.traverse((o) => o.geometry?.dispose()); }
   const maxLevel = !$("#bldAllLevels").checked ? BLD.level : b.levels.length - 1;
-  BLD.root = buildingGroup(b, maxLevel, BLD.plan ? BLD.level : null);
-  BLD.root.traverse((o) => {  // the selection in blue
-    if (o.isMesh && BLD.sel && o.userData.type === BLD.sel.type && o.userData.id === BLD.sel.id) o.material = mats().sel;
-  });
+  const g = buildingGroup(b, maxLevel, BLD.plan ? BLD.level : null);
+  for (const o of g.children) {  // the selection in blue
+    if (BLD.sel && o.userData.type === BLD.sel.type && o.userData.id === BLD.sel.id) o.material = mats().sel;
+  }
+  BLD.root = batchGroup(g);
   BLD.scene.add(BLD.root);
   BLD.grid.position.y = lvlOf(b, BLD.level).elevation + 0.002;
   draw();
@@ -231,10 +277,11 @@ function ndc(e) {
   const r = BLD.renderer.domElement.getBoundingClientRect();
   return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
 }
-function pickMesh(e) {
+function pickMesh(e) {  // the nearest hit, with the {type, id} of the part it hit
   const rc = ray();
   rc.setFromCamera(ndc(e), camera());
-  return rc.intersectObjects(BLD.root ? BLD.root.children : [], false)[0] || null;
+  const hit = rc.intersectObjects(BLD.root ? BLD.root.children : [], false)[0];
+  return hit ? { ...hit, part: partAt(hit) } : null;
 }
 function floorPoint(e, snap = true) {  // the clicked point on the working level, in building metres
   const rc = ray();
@@ -275,7 +322,7 @@ function bindPointer(cv) {
     down = { x: e.clientX, y: e.clientY, moved: false };
     if (BLD.tool === "select" && BLD.sel && ["wall", "column", "stair", "opening"].includes(BLD.sel.type)) {
       const hit = pickMesh(e);
-      if (hit && hit.object.userData.type === BLD.sel.type && hit.object.userData.id === BLD.sel.id) {
+      if (hit && hit.part.type === BLD.sel.type && hit.part.id === BLD.sel.id) {
         down.drag = { start: floorPoint(e, false), snapshot: JSON.stringify(selObj()) };
         BLD.controls.enabled = false;
       }
@@ -322,13 +369,13 @@ function toolClick(e) {
   const lv = BLD.level;
   if (BLD.tool === "select") {
     const hit = pickMesh(e);
-    BLD.sel = hit ? { ...hit.object.userData } : null;
+    BLD.sel = hit ? hit.part : null;
     rebuild(); renderBldProps();
     return;
   }
   if (BLD.tool === "door" || BLD.tool === "window") {
     const hit = pickMesh(e);
-    const w = hit && hit.object.userData.type === "wall" && b.walls.find((x) => x.id === hit.object.userData.id);
+    const w = hit && hit.part.type === "wall" && b.walls.find((x) => x.id === hit.part.id);
     if (!w) return toast("Click on a wall");
     const L = wallLen(w), door = BLD.tool === "door", width = door ? 0.9 : 1.2;
     const p = [hit.point.x, -hit.point.z];
@@ -448,7 +495,7 @@ $("#bldAddLevel").onclick = () => {
   const b = S.D.building;
   if (!b) return;
   const top = b.levels[b.levels.length - 1], k = b.levels.length;
-  b.levels.push({ name: `Floor ${k}`, elevation: top.elevation + top.height, height: top.height, slab: top.slab });
+  b.levels.push({ name: `Floor ${k}`, elevation: Math.round((top.elevation + top.height) * 1000) / 1000, height: top.height, slab: top.slab });
   for (const w of b.walls.filter((x) => x.level === k - 1 && x.kind === "external")) {
     const nw = { ...JSON.parse(JSON.stringify(w)), id: bnextId("walls", "W"), level: k };
     b.walls.push(nw);

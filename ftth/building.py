@@ -245,7 +245,7 @@ def generate(p: AutoParams) -> Building:
     W, D, te, ti = p.width, p.depth, p.external_wall, p.internal_wall
     # wall centrelines run half a wall inside the outer face
     x0, y0, x1, y1 = te / 2, te / 2, W - te / 2, D - te / 2
-    b = Building(levels=[Level(name="Ground floor" if k == 0 else f"Floor {k}", elevation=k * p.floor_height,
+    b = Building(levels=[Level(name="Ground floor" if k == 0 else f"Floor {k}", elevation=round(k * p.floor_height, 3),
                                height=p.floor_height) for k in range(p.floors)])
     n = {"w": 0, "o": 0}
 
