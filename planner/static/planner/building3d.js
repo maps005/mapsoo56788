@@ -38,16 +38,96 @@ const wallLen = (w) => Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
 
 // ---- the 3D model ----------------------------------------------------------------------------------------
 const MAT = {};
+// textures drawn on a canvas (nothing to download); `tile` is the metres one texture covers: the merged meshes
+// get world-space UVs (batchGroup), so bricks, sheets and grass keep their real size on every wall and roof
+function canvasTex(px, draw) {
+  const c = document.createElement("canvas");
+  c.width = c.height = px;
+  const x = c.getContext("2d");
+  draw(x, px);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.encoding = THREE.sRGBEncoding;
+  t.anisotropy = 8;
+  return t;
+}
+let SEED = 7;
+const rnd = () => { SEED = (SEED * 16807) % 2147483647; return (SEED - 1) / 2147483646; };
+function noise(x, n, base, spread, size = 2) {  // speckle: n dots of shades round base [r, g, b]
+  for (let i = 0; i < n; i++) {
+    const k = (rnd() - 0.5) * spread;
+    x.fillStyle = `rgb(${base[0] + k},${base[1] + k},${base[2] + k * 0.9})`;
+    x.fillRect(rnd() * x.canvas.width, rnd() * x.canvas.height, size, size);
+  }
+}
+const TEX = {
+  render: () => canvasTex(256, (x, n) => { x.fillStyle = "#ece6db"; x.fillRect(0, 0, n, n); noise(x, 9000, [232, 226, 214], 22, 2); }),
+  brick: () => canvasTex(512, (x, n) => {  // 16 courses of 215 x 65 mm bricks with 10 mm joints in 1.2 m
+    x.fillStyle = "#cfc6b8"; x.fillRect(0, 0, n, n);
+    const ch = n / 16, bw = n / 5.33;
+    for (let r = 0; r < 16; r++) for (let c = -1; c < 7; c++) {
+      const sh = 150 + rnd() * 40;
+      x.fillStyle = `rgb(${sh},${sh * 0.45 + rnd() * 10},${sh * 0.33})`;
+      x.fillRect(c * bw + (r % 2) * bw / 2 + 2, r * ch + 2, bw - 4, ch - 4);
+    }
+    noise(x, 6000, [150, 70, 50], 40, 1);
+  }),
+  stone: () => canvasTex(512, (x, n) => {
+    x.fillStyle = "#9c968a"; x.fillRect(0, 0, n, n);
+    let y = 0;
+    while (y < n) { const h = 50 + rnd() * 40; let xx = -rnd() * 60;
+      while (xx < n) { const w = 70 + rnd() * 90, sh = 175 + rnd() * 45; x.fillStyle = `rgb(${sh},${sh * 0.95},${sh * 0.86})`; x.fillRect(xx + 3, y + 3, w - 6, h - 6); xx += w; }
+      y += h; }
+    noise(x, 8000, [180, 172, 158], 40, 1);
+  }),
+  concrete: () => canvasTex(256, (x, n) => {
+    x.fillStyle = "#c9c9c4"; x.fillRect(0, 0, n, n); noise(x, 7000, [200, 200, 195], 26, 2);
+    x.strokeStyle = "rgba(90,90,90,.25)"; x.lineWidth = 2; x.strokeRect(1, 1, n - 2, n / 2 - 2); x.strokeRect(1, n / 2, n - 2, n / 2 - 2);
+  }),
+  sheet: () => canvasTex(128, (x, n) => {  // corrugations: 8 in 0.76 m
+    for (let i = 0; i < n; i++) { const v = 0.5 + 0.5 * Math.sin(i / n * Math.PI * 16); const c = 70 + v * 45; x.fillStyle = `rgb(${c * 0.92},${c},${c * 1.08})`; x.fillRect(i, 0, 1, n); }
+  }),
+  tiles: () => canvasTex(256, (x, n) => {
+    x.fillStyle = "#6e3426"; x.fillRect(0, 0, n, n);
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+      const sh = 130 + rnd() * 30, g = x.createLinearGradient(0, r * n / 4, 0, (r + 1) * n / 4);
+      g.addColorStop(0, `rgb(${sh},${sh * 0.48},${sh * 0.36})`); g.addColorStop(1, `rgb(${sh * 0.7},${sh * 0.32},${sh * 0.24})`);
+      x.fillStyle = g; x.fillRect(c * n / 4 + (r % 2) * n / 8 + 2, r * n / 4 + 1, n / 4 - 4, n / 4 - 3);
+    }
+  }),
+  membrane: () => canvasTex(256, (x, n) => { x.fillStyle = "#6b6e70"; x.fillRect(0, 0, n, n); noise(x, 12000, [110, 112, 114], 40, 2); }),
+  grass: () => canvasTex(256, (x, n) => { x.fillStyle = "#7d9a5c"; x.fillRect(0, 0, n, n); noise(x, 16000, [118, 150, 86], 50, 2); }),
+  lawn: () => canvasTex(256, (x, n) => { x.fillStyle = "#6fa04a"; x.fillRect(0, 0, n, n); noise(x, 16000, [104, 160, 70], 44, 2);
+    x.fillStyle = "rgba(255,255,255,.05)"; for (let i = 0; i < n; i += 32) x.fillRect(0, i, n, 16); }),
+  paving: () => canvasTex(256, (x, n) => {  // 200 x 100 mm blocks, herringbone-ish rows
+    x.fillStyle = "#8f8a80"; x.fillRect(0, 0, n, n);
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 5; c++) { const sh = 175 + rnd() * 25; x.fillStyle = `rgb(${sh},${sh * 0.96},${sh * 0.9})`;
+      x.fillRect(c * n / 4 + (r % 2) * n / 8 + 1, r * n / 8 + 1, n / 4 - 2, n / 8 - 2); }
+  }),
+  soil: () => canvasTex(128, (x, n) => { x.fillStyle = "#5a3e28"; x.fillRect(0, 0, n, n); noise(x, 4000, [96, 66, 44], 40, 2); }),
+  leaf: () => canvasTex(128, (x, n) => { x.fillStyle = "#3f6b2e"; x.fillRect(0, 0, n, n); noise(x, 5000, [70, 112, 50], 60, 3); }),
+  floor: () => canvasTex(256, (x, n) => { x.fillStyle = "#d9d6cf"; x.fillRect(0, 0, n, n); x.strokeStyle = "rgba(0,0,0,.08)";
+    for (let i = 0; i <= n; i += n / 4) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, n); x.moveTo(0, i); x.lineTo(n, i); x.stroke(); } }),
+};
 function mats() {
   if (MAT.wall) return MAT;
-  const m = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0, ...o });
-  Object.assign(MAT, { wall: m(0xe8e4dc), wallInt: m(0xf4f1ea), slab: m(0xb9bec4), glass: m(0x8fc4e8, { transparent: true, opacity: 0.45 }),
-    door: m(0x9a6a3f), roofSheet: m(0x5e6b78, { side: THREE.DoubleSide }), roofTile: m(0x8a4b38, { side: THREE.DoubleSide }),
-    stair: m(0xa9adb3), column: m(0x8d949c), cut: m(0x3b4148), sel: m(0x00b7ff, { emissive: 0x003a55 }), ghost: m(0x00b7ff, { transparent: true, opacity: 0.35 }),
-    soil: m(0x6b4a2f), flowers: m(0xd8508a), lawn: m(0x6fae45), shrubs: m(0x3f7d3a), paving: m(0xb7b2a8), hedge: m(0x2f6b2f),
-    trunk: m(0x6b4a2f), canopy: m(0x3f8f3f) });
+  const m = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0, envMapIntensity: 0.45, ...o });
+  const tm = (tex, tile, o = {}) => { const mt = m(0xffffff, { map: TEX[tex](), ...o }); mt.userData.tile = tile; return mt; };
+  Object.assign(MAT, {
+    wall: tm("render", 2), wallBrick: tm("brick", 1.2), wallStone: tm("stone", 2), wallConcrete: tm("concrete", 2.4),
+    wallInt: m(0xf4f1ea), slab: tm("floor", 2.4, { roughness: 0.7 }), roofFlat: tm("membrane", 4, { roughness: 0.95 }),
+    glass: m(0x6b93b3, { metalness: 0.7, roughness: 0.04, envMapIntensity: 1.6, transparent: true, opacity: 0.88 }),
+    frame: m(0x3a3f44, { metalness: 0.4, roughness: 0.4 }), sill: m(0xd8d4cc, { roughness: 0.6 }), coping: m(0xbdb8ae),
+    door: m(0x7a4f2c, { roughness: 0.6 }), metal: m(0xc9cdd1, { metalness: 0.9, roughness: 0.25 }),
+    roofSheet: tm("sheet", 0.76, { side: THREE.DoubleSide, metalness: 0.35, roughness: 0.45 }), roofTile: tm("tiles", 0.6, { side: THREE.DoubleSide }),
+    stair: tm("concrete", 2.4), column: m(0x8d949c), cut: m(0x3b4148), sel: m(0x00b7ff, { emissive: 0x003a55 }), ghost: m(0x00b7ff, { transparent: true, opacity: 0.35 }),
+    soil: tm("soil", 1), lawn: tm("lawn", 3), paving: tm("paving", 0.8), hedge: tm("leaf", 1.2), ground: tm("grass", 6, { roughness: 1 }),
+    trunk: m(0x5b4330, { roughness: 1 }), leaves: [tm("leaf", 1.5), tm("leaf", 1.5, { color: 0xb8d68a }), tm("leaf", 1.5, { color: 0x8fb070 })],
+    flowers: [m(0xe0457b), m(0xf2c230), m(0xd92e2e), m(0xf4f0f6), m(0x9b59d0)],
+  });
   return MAT;
 }
+const wallMat = (w) => { const M = mats(); return w.kind !== "external" ? M.wallInt : { brick: M.wallBrick, stone: M.wallStone, concrete: M.wallConcrete }[w.material] || M.wall; };
 let UNIT_BOX = null;  // one 1 m box, scaled, for every wall piece, step and column: a tower has thousands of them
 const unitBox = () => UNIT_BOX || (UNIT_BOX = new THREE.BoxGeometry(1, 1, 1).toNonIndexed());
 function boxAlong(a, b, s0, s1, z0, z1, t, mat) {  // part of a wall a->b between s0, s1 (m) and heights z0, z1
@@ -63,7 +143,7 @@ function tag(mesh, type, id) { mesh.userData = { type, id }; return mesh; }
 
 function wallMeshes(b, w, group, opsByWall, cut) {  // cut: a plan, where walls are drawn dark against the floor
   const M = mats(), L = wallLen(w), base = lvlOf(b, w.level).elevation, H = wallH(b, w);
-  const mat = cut ? M.cut : w.kind === "external" ? M.wall : M.wallInt;
+  const mat = cut ? M.cut : wallMat(w);
   const ops = (opsByWall.get(w.id) || []).sort((p, q) => p.offset - q.offset);
   let s = 0;
   for (const o of ops) {
@@ -71,11 +151,41 @@ function wallMeshes(b, w, group, opsByWall, cut) {  // cut: a plan, where walls 
     if (s0 > s) group.add(tag(boxAlong(w.a, w.b, s, s0, base, base + H, w.thickness, mat), "wall", w.id));
     if (o.sill > 0) group.add(tag(boxAlong(w.a, w.b, s0, s1, base, base + o.sill, w.thickness, mat), "wall", w.id));
     if (o.sill + o.height < H) group.add(tag(boxAlong(w.a, w.b, s0, s1, base + o.sill + o.height, base + H, w.thickness, mat), "wall", w.id));
-    const fill = o.kind === "window" ? M.glass : M.door;
-    group.add(tag(boxAlong(w.a, w.b, s0, s1, base + o.sill, base + o.sill + o.height, o.kind === "window" ? 0.03 : 0.05, fill), "opening", o.id));
+    openingMeshes(w, o, s0, s1, base, group, cut);
     s = Math.max(s, s1);
   }
   if (L > s) group.add(tag(boxAlong(w.a, w.b, s, L, base, base + H, w.thickness, mat), "wall", w.id));
+}
+
+function openingMeshes(w, o, s0, s1, base, group, cut) {
+  const M = mats(), z0 = base + o.sill, z1 = z0 + o.height, t = w.thickness;
+  const add = (a0, a1, h0, h1, d, mat) => group.add(tag(boxAlong(w.a, w.b, a0, a1, h0, h1, d, mat), "opening", o.id));
+  if (cut) { add(s0, s1, z0, z1, o.kind === "window" ? 0.03 : 0.05, o.kind === "window" ? M.glass : M.door); return; }
+  const f = 0.06, fd = Math.min(0.1, t * 0.7);
+  add(s0, s1, z1 - f, z1, fd, M.frame);  // head and jambs
+  add(s0, s0 + f, z0, z1, fd, M.frame);
+  add(s1 - f, s1, z0, z1, fd, M.frame);
+  if (o.kind === "window") {
+    add(s0, s1, z0, z0 + f, fd, M.frame);
+    add(s0 - 0.04, s1 + 0.04, z0 - 0.05, z0, t + 0.1, M.sill);  // sill, standing out from both faces
+    add(s0 + f, s1 - f, z0 + f, z1 - f, 0.02, M.glass);
+    const panes = Math.max(1, Math.round((s1 - s0) / 0.8));  // glazing bars, and a transom on tall windows
+    for (let i = 1; i < panes; i++) { const c = s0 + (s1 - s0) * i / panes; add(c - 0.025, c + 0.025, z0 + f, z1 - f, fd * 0.8, M.frame); }
+    if (o.height > 1.4) { const zt = z1 - Math.min(0.5, o.height * 0.3); add(s0 + f, s1 - f, zt - 0.025, zt + 0.025, fd * 0.8, M.frame); }
+  } else {
+    const glazed = o.style === "sliding";
+    const leaves = o.style === "double" || o.style === "sliding" ? 2 : 1, lw = (s1 - s0 - 2 * f) / leaves;
+    for (let i = 0; i < leaves; i++) {
+      const a0 = s0 + f + i * lw + (leaves > 1 ? 0.005 : 0), a1 = a0 + lw - (leaves > 1 ? 0.01 : 0);
+      add(a0, a1, z0, z1 - f, 0.05, glazed ? M.glass : M.door);
+      if (!glazed) {  // two raised panels and a handle
+        add(a0 + 0.1, a1 - 0.1, z0 + 0.15, z0 + (z1 - z0) * 0.45, 0.07, M.door);
+        add(a0 + 0.1, a1 - 0.1, z0 + (z1 - z0) * 0.52, z1 - f - 0.15, 0.07, M.door);
+      }
+      const hx = leaves > 1 ? (i === 0 ? a1 - 0.08 : a0 + 0.08) : a1 - 0.08;
+      add(hx - 0.02, hx + 0.02, z0 + 1.0, z0 + 1.08, 0.12, M.metal);
+    }
+  }
 }
 
 function slabMesh(b, sl) {
@@ -83,7 +193,7 @@ function slabMesh(b, sl) {
   const g = new THREE.ExtrudeGeometry(shape, { depth: sl.thickness, bevelEnabled: false });
   g.rotateX(-Math.PI / 2);  // shape x, y -> three x, -z; extrusion -> up
   const top = sl.level < b.levels.length ? lvlOf(b, sl.level).elevation : lvlOf(b, b.levels.length - 1).elevation + lvlOf(b, b.levels.length - 1).height + sl.thickness;
-  const mesh = new THREE.Mesh(g, mats().slab);
+  const mesh = new THREE.Mesh(g, sl.level >= b.levels.length ? mats().roofFlat : mats().slab);
   mesh.position.y = top - sl.thickness;
   return tag(mesh, "slab", sl.id);
 }
@@ -97,6 +207,7 @@ function roofMesh(b, r) {
     for (let i = 0; i < 4; i++) {
       const a = c[i], e = c[(i + 1) % 4], L = Math.hypot(e[0] - a[0], e[1] - a[1]);
       grp.add(tag(boxAlong(a, e, 0, L, z0, z0 + r.parapet, t, mats().wall), "roof", r.id));
+      grp.add(tag(boxAlong(a, e, -0.05, L + 0.05, z0 + r.parapet, z0 + r.parapet + 0.06, t + 0.1, mats().coping), "roof", r.id));
     }
     return grp;
   }
@@ -140,30 +251,62 @@ function stairMeshes(b, st, group) {
   }
 }
 
-// landscaping in the compound: beds, lawns and paving as low slabs (round their outline), hedges as low walls,
-// trees as a trunk and a crown
+// landscaping in the compound: beds of soil with plants and flowers in them, lawns and paving, leafy hedges, and
+// trees with a trunk and a crown of a few overlapping spheres (each tree a little different)
+let TREE_G = null;
+const treeGeos = () => TREE_G || (TREE_G = { trunk: new THREE.CylinderGeometry(0.1, 0.17, 1, 7), ball: new THREE.IcosahedronGeometry(1, 1), dot: new THREE.IcosahedronGeometry(1, 0) });
 function landscapeMeshes(b, g) {
-  const M = mats();
-  const slab = (pts, z0, z1, mat, inset = 0) => {
-    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
-    const x0 = Math.min(...xs) + inset, x1 = Math.max(...xs) - inset, y0 = Math.min(...ys) + inset, y1 = Math.max(...ys) - inset;
+  const M = mats(), G = treeGeos();
+  const box = (x0, y0, x1, y1, z0, z1, mat) => {
     const m = new THREE.Mesh(unitBox(), mat);
     m.scale.set(Math.max(x1 - x0, 0.05), z1 - z0, Math.max(y1 - y0, 0.05));
     m.position.set((x0 + x1) / 2, (z0 + z1) / 2, -(y0 + y1) / 2);
     return m;
   };
+  const ball = (geo, mat, x, y, z, sx, sy = sx, sz = sx) => { const m = new THREE.Mesh(geo, mat); m.scale.set(sx, sy, sz); m.position.set(x, z, -y); return m; };
   for (const x of b.landscape || []) {
-    const P = x.points;
-    if (x.kind === "flower_bed") { g.add(tag(slab(P, 0, 0.2, M.soil), "landscape", x.id)); g.add(tag(slab(P, 0.2, 0.4, M.flowers, 0.15), "landscape", x.id)); }
-    else if (x.kind === "shrub_bed") { g.add(tag(slab(P, 0, 0.2, M.soil), "landscape", x.id)); g.add(tag(slab(P, 0.2, 0.9, M.shrubs, 0.2), "landscape", x.id)); }
-    else if (x.kind === "lawn") g.add(tag(slab(P, 0, 0.05, M.lawn), "landscape", x.id));
-    else if (x.kind === "paving") g.add(tag(slab(P, 0, 0.08, M.paving), "landscape", x.id));
-    else if (x.kind === "hedge") for (let i = 1; i < P.length; i++) g.add(tag(boxAlong(P[i - 1], P[i], 0, Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]), 0, 1.2, 0.6, M.hedge), "landscape", x.id));
-    else if (x.kind === "tree") {
-      const [tx, ty] = P[0], trunk = new THREE.Mesh(unitBox(), M.trunk), crown = new THREE.Mesh(unitBox(), M.canopy);
-      trunk.scale.set(0.3, 2.6, 0.3); trunk.position.set(tx, 1.3, -ty);
-      crown.scale.set(3, 2.6, 3); crown.position.set(tx, 3.6, -ty); crown.rotation.y = Math.PI / 4;
-      g.add(tag(trunk, "landscape", x.id)); g.add(tag(crown, "landscape", x.id));
+    const P = x.points, xs = P.map((q) => q[0]), ys = P.map((q) => q[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    SEED = 1 + [...x.id].reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7) % 100000;
+    const add = (m) => g.add(tag(m, "landscape", x.id));
+    if (x.kind === "flower_bed" || x.kind === "shrub_bed") {
+      add(box(x0, y0, x1, y1, 0, 0.18, M.soil));
+      add(box(x0 - 0.06, y0 - 0.06, x1 + 0.06, y0, 0, 0.22, M.coping));  // edging
+      add(box(x0 - 0.06, y1, x1 + 0.06, y1 + 0.06, 0, 0.22, M.coping));
+      add(box(x0 - 0.06, y0, x0, y1, 0, 0.22, M.coping));
+      add(box(x1, y0, x1 + 0.06, y1, 0, 0.22, M.coping));
+      const A = (x1 - x0) * (y1 - y0);
+      if (x.kind === "shrub_bed") {
+        for (let i = 0, n = Math.min(120, Math.ceil(A / 1.2)); i < n; i++) {
+          const r = 0.35 + rnd() * 0.25;
+          add(ball(G.ball, M.leaves[i % 3], x0 + r + rnd() * Math.max(0, x1 - x0 - 2 * r), y0 + r + rnd() * Math.max(0, y1 - y0 - 2 * r), 0.18 + r * 0.8, r, r * 0.85));
+        }
+      } else {
+        for (let i = 0, n = Math.min(240, Math.ceil(A * 1.4)); i < n; i++) {  // low leaves, then the flowers on them
+          const px = x0 + 0.15 + rnd() * Math.max(0, x1 - x0 - 0.3), py = y0 + 0.15 + rnd() * Math.max(0, y1 - y0 - 0.3);
+          add(ball(G.ball, M.leaves[i % 3], px, py, 0.25, 0.22, 0.16));
+          add(ball(G.dot, M.flowers[Math.floor(rnd() * M.flowers.length)], px + (rnd() - 0.5) * 0.2, py + (rnd() - 0.5) * 0.2, 0.42, 0.07));
+          if (i % 2) add(ball(G.dot, M.flowers[Math.floor(rnd() * M.flowers.length)], px + (rnd() - 0.5) * 0.3, py + (rnd() - 0.5) * 0.3, 0.38, 0.06));
+        }
+      }
+    } else if (x.kind === "lawn") add(box(x0, y0, x1, y1, 0, 0.03, M.lawn));
+    else if (x.kind === "paving") add(box(x0, y0, x1, y1, 0, 0.06, M.paving));
+    else if (x.kind === "hedge") for (let i = 1; i < P.length; i++) {
+      const L = Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
+      add(boxAlong(P[i - 1], P[i], 0, L, 0, 1.0, 0.6, M.hedge));
+      for (let s = 0.3; s < L; s += 0.5) {  // a rounded, uneven top
+        const t = s / L, cx = P[i - 1][0] + (P[i][0] - P[i - 1][0]) * t, cy = P[i - 1][1] + (P[i][1] - P[i - 1][1]) * t;
+        add(ball(G.ball, M.leaves[0], cx, cy, 1.0, 0.36 + rnd() * 0.08, 0.28, 0.36));
+      }
+    } else if (x.kind === "tree") {
+      const [tx, ty] = P[0], hgt = 4.5 + rnd() * 2.5, crown = 1.6 + rnd() * 0.8;
+      add(ball(G.trunk, M.trunk, tx, ty, hgt * 0.32, 1, hgt * 0.64, 1));
+      const leaf = M.leaves[Math.floor(rnd() * 3)];
+      add(ball(G.ball, leaf, tx, ty, hgt * 0.62 + crown * 0.4, crown, crown * 0.85));
+      for (let k = 0; k < 4; k++) {
+        const a = rnd() * Math.PI * 2, d = crown * (0.45 + rnd() * 0.25), r = crown * (0.55 + rnd() * 0.2);
+        add(ball(G.ball, leaf, tx + Math.cos(a) * d, ty + Math.sin(a) * d, hgt * 0.55 + rnd() * crown * 0.7, r, r * 0.85));
+      }
     }
   }
 }
@@ -180,7 +323,7 @@ function buildingGroup(b, maxLevel, only = null) {  // only: a plan of that one 
   }
   for (const st of b.stairs) if (show(st.level)) stairMeshes(b, st, g);
   for (const c of b.columns) if (show(c.level)) {
-    const lv = lvlOf(b, c.level), m = new THREE.Mesh(unitBox(), M.column);
+    const lv = lvlOf(b, c.level), m = new THREE.Mesh(unitBox(), only === null ? M.wall : M.column);  // in the walls: rendered like them
     m.scale.set(c.size, lv.height, c.size);
     m.position.set(c.x, lv.elevation + lv.height / 2, -c.y);
     g.add(tag(m, "column", c.id));
@@ -201,7 +344,8 @@ function batchGroup(g) {
   for (const [mat, list] of byMat) {
     const geos = list.map((o) => o.geometry.index ? o.geometry.toNonIndexed() : o.geometry);
     const n = geos.reduce((a, x) => a + x.attributes.position.count, 0);
-    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), parts = [];
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), uv = new Float32Array(n * 2), parts = [];
+    const tile = mat.userData?.tile || 1;
     let k = 0;
     geos.forEach((x, i) => {
       const P = x.attributes.position, N = x.attributes.normal, M = list[i].matrixWorld;
@@ -209,13 +353,19 @@ function batchGroup(g) {
       for (let j = 0; j < P.count; j++, k++) {
         v.fromBufferAttribute(P, j).applyMatrix4(M); pos[k * 3] = v.x; pos[k * 3 + 1] = v.y; pos[k * 3 + 2] = v.z;
         v.fromBufferAttribute(N, j).applyMatrix3(nm).normalize(); nor[k * 3] = v.x; nor[k * 3 + 1] = v.y; nor[k * 3 + 2] = v.z;
+        // the texture laid on the face from its main direction, at real size: walls (x or z, y), floors (x, z)
+        const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z), px = pos[k * 3], py = pos[k * 3 + 1], pz = pos[k * 3 + 2];
+        uv[k * 2] = (ay >= ax && ay >= az ? px : ax > az ? pz : px) / tile;
+        uv[k * 2 + 1] = (ay >= ax && ay >= az ? pz : py) / tile;
       }
       parts.push({ end: k / 3, type: list[i].userData.type, id: list[i].userData.id });  // end: first triangle after it
     });
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
     const m = new THREE.Mesh(geo, mat);
+    m.castShadow = m.receiveShadow = mat !== mats().glass;
     m.userData.parts = parts;
     out.add(m);
   }
@@ -234,24 +384,50 @@ function setupScene() {
   const box = $("#bld3d");
   BLD.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   BLD.renderer.setPixelRatio(window.devicePixelRatio || 1);
+  BLD.renderer.outputEncoding = THREE.sRGBEncoding;
+  BLD.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  BLD.renderer.toneMappingExposure = 1.05;
+  BLD.renderer.shadowMap.enabled = true;
+  BLD.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   box.appendChild(BLD.renderer.domElement);
   BLD.scene = new THREE.Scene();
-  BLD.scene.background = new THREE.Color(0xe9eef3);
-  BLD.scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 0.85));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.75);
-  sun.position.set(30, 50, 20);
-  BLD.scene.add(sun);
+  // the sky: a dome shaded from blue overhead to a pale horizon; also the light the glass reflects
+  const sky = new THREE.SphereGeometry(1800, 32, 16), col = [];
+  const top = new THREE.Color(0x5e8fc9), hor = new THREE.Color(0xdfe9f2), low = new THREE.Color(0xb7b9a6);
+  for (let i = 0; i < sky.attributes.position.count; i++) {
+    const y = sky.attributes.position.getY(i) / 1800, c = y > 0 ? hor.clone().lerp(top, Math.pow(y, 0.6)) : hor.clone().lerp(low, Math.min(1, -y * 4));
+    col.push(c.r, c.g, c.b);
+  }
+  sky.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  BLD.sky = new THREE.Mesh(sky, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false }));
+  const envScene = new THREE.Scene();
+  envScene.add(BLD.sky.clone());
+  const pmrem = new THREE.PMREMGenerator(BLD.renderer);
+  BLD.scene.environment = pmrem.fromScene(envScene, 0.02).texture;
+  BLD.scene.add(BLD.sky);
+  BLD.scene.background = new THREE.Color(0xdfe9f2);
+  BLD.scene.add(new THREE.HemisphereLight(0xf4f8ff, 0x8a8f78, 0.35));
+  BLD.sun = new THREE.DirectionalLight(0xfff4e2, 1.6);
+  BLD.sun.position.set(40, 60, 25);
+  BLD.sun.castShadow = true;
+  BLD.sun.shadow.mapSize.set(2048, 2048);
+  BLD.sun.shadow.bias = -0.0004;
+  BLD.sun.shadow.normalBias = 0.03;
+  BLD.scene.add(BLD.sun, BLD.sun.target);
   BLD.cam3d = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
   BLD.camPlan = new THREE.OrthographicCamera(-20, 20, 20, -20, -1000, 1000);
   BLD.controls = new THREE.OrbitControls(BLD.cam3d, BLD.renderer.domElement);
   BLD.controls.addEventListener("change", draw);
   // the ground: a soft site surface with a faint 1 m grid (for drawing) and stronger 5 m lines
-  BLD.ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ color: 0xdfe5d8, roughness: 1 }));
+  const gg = new THREE.PlaneGeometry(600, 600), guv = gg.attributes.uv;
+  for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * 100, guv.getY(i) * 100);  // grass at 6 m a tile
+  BLD.ground = new THREE.Mesh(gg, mats().ground);
+  BLD.ground.receiveShadow = true;
   BLD.ground.rotation.x = -Math.PI / 2;
   BLD.ground.position.y = -0.02;
   BLD.scene.add(BLD.ground);
   const fine = new THREE.GridHelper(200, 200, 0xc9d0c4, 0xc9d0c4), major = new THREE.GridHelper(200, 40, 0xaeb8ad, 0xaeb8ad);
-  for (const g of [fine, major]) { g.material.transparent = true; g.material.opacity = g === fine ? 0.35 : 0.6; }
+  for (const g of [fine, major]) { g.material.transparent = true; g.material.opacity = g === fine ? 0.18 : 0.3; }
   BLD.grid = new THREE.Group();
   BLD.grid.add(fine, major);
   BLD.scene.add(BLD.grid);
@@ -326,6 +502,13 @@ function rebuild() {
   BLD.root = batchGroup(g);
   BLD.scene.add(BLD.root);
   roomLabels(b);
+  const e = extent(b), r = Math.max(e.size, e.top) * 0.85 + 12;
+  BLD.sun.target.position.set(e.cx, 0, -e.cy);
+  BLD.sun.position.set(e.cx + r * 0.7, r * 1.1, -e.cy + r * 0.45);
+  Object.assign(BLD.sun.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 1, far: r * 4 });
+  BLD.sun.shadow.camera.updateProjectionMatrix();
+  BLD.sky.visible = BLD.ground.visible = !BLD.plan;
+  BLD.scene.background = new THREE.Color(BLD.plan ? 0xf7f8fa : 0xdfe9f2);
   BLD.grid.position.y = lvlOf(b, BLD.level).elevation + 0.002;
   draw();
 }
