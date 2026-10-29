@@ -406,8 +406,65 @@ function labelPlacer(cell) {
 
 // The drafting layer (design.markups): lines, polylines, circles, notes, leaders and dimensions in drawing
 // metres. Returns their outlines for picking and snapping.
+// arc through three points (drawing coordinates): centre, radius and the points along it from a to c;
+// the same rules as ftth/exporters/drafting.py arc3 / arc_points
+function arc3(a, b, c) {
+  const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
+  if (Math.abs(d) < 1e-12) return null;
+  const s = (p) => p[0] * p[0] + p[1] * p[1];
+  const ux = (s(a) * (b[1] - c[1]) + s(b) * (c[1] - a[1]) + s(c) * (a[1] - b[1])) / d;
+  const uy = (s(a) * (c[0] - b[0]) + s(b) * (a[0] - c[0]) + s(c) * (b[0] - a[0])) / d;
+  const ang = (p) => Math.atan2(p[1] - uy, p[0] - ux), T = 2 * Math.PI, md = (x) => ((x % T) + T) % T;
+  const sa = ang(a), sb = ang(b), sc = ang(c), ccw = md(sb - sa) < md(sc - sa);
+  const sweep = ccw ? md(sc - sa) : -md(sa - sc);
+  return { c: [ux, uy], r: Math.hypot(a[0] - ux, a[1] - uy), start: sa, sweep,
+           pts: (n = 32) => Array.from({ length: n + 1 }, (_, k) => [ux + Math.hypot(a[0] - ux, a[1] - uy) * Math.cos(sa + sweep * k / n), uy + Math.hypot(a[0] - ux, a[1] - uy) * Math.sin(sa + sweep * k / n)]) };
+}
+// dimension lines, text position / angle and value in drawing coordinates (y down); ftth/exporters/drafting.py
+function dimGeometry(kind, P, off) {
+  const up = (p) => [p[0], -p[1]], ln = (l) => [[l[0], -l[1]], [l[2], -l[3]]];
+  const Q = P.map(up);
+  let lines = [], t, ang, value;
+  const upright = (deg) => { deg = ((deg + 180) % 360 + 360) % 360 - 180; return deg > 90 ? deg - 180 : deg <= -90 ? deg + 180 : deg; };
+  if (kind === "radius") {
+    const [[cx, cy], [ex, ey]] = Q, a = Math.atan2(ey - cy, ex - cx);
+    lines = [[cx, cy, ex, ey]]; value = Math.hypot(ex - cx, ey - cy);
+    t = [(cx + ex) / 2 - Math.sin(a) * off * 0.4, (cy + ey) / 2 + Math.cos(a) * off * 0.4]; ang = upright(a * 180 / Math.PI);
+  } else if (kind === "angular") {
+    const [[ax, ay], [vx, vy], [bx, by]] = Q, T2 = 2 * Math.PI;
+    let a1 = Math.atan2(ay - vy, ax - vx), a2 = Math.atan2(by - vy, bx - vx), sw = ((a2 - a1) % T2 + T2) % T2;
+    if (sw > Math.PI) { [a1, a2] = [a2, a1]; sw = T2 - sw; }
+    const rr = Math.min(Math.hypot(ax - vx, ay - vy), Math.hypot(bx - vx, by - vy)) * 0.6 || off;
+    const pts = Array.from({ length: 17 }, (_, k) => [vx + rr * Math.cos(a1 + sw * k / 16), vy + rr * Math.sin(a1 + sw * k / 16)]);
+    lines = pts.slice(1).map((p, k) => [pts[k][0], pts[k][1], p[0], p[1]]);
+    const mid = a1 + sw / 2;
+    t = [vx + (rr + off * 0.5) * Math.cos(mid), vy + (rr + off * 0.5) * Math.sin(mid)]; ang = upright(mid * 180 / Math.PI - 90); value = sw * 180 / Math.PI;
+  } else {
+    const [[ax, ay], [bx, by]] = Q;
+    let d1, d2, a;
+    if (kind === "horizontal") { const lv = Math.max(ay, by) + off; d1 = [ax, lv]; d2 = [bx, lv]; value = Math.abs(bx - ax); a = 0; }
+    else if (kind === "vertical") { const lv = Math.max(ax, bx) + off; d1 = [lv, ay]; d2 = [lv, by]; value = Math.abs(by - ay); a = 90; }
+    else { const r = Math.atan2(by - ay, bx - ax), nx = -Math.sin(r) * off, ny = Math.cos(r) * off; d1 = [ax + nx, ay + ny]; d2 = [bx + nx, by + ny]; value = Math.hypot(bx - ax, by - ay); a = r * 180 / Math.PI; }
+    lines = [[ax, ay, d1[0], d1[1]], [bx, by, d2[0], d2[1]], [d1[0], d1[1], d2[0], d2[1]]];
+    const tk = (a + 45) * Math.PI / 180, k = off * 0.25;
+    for (const [x, y] of [d1, d2]) lines.push([x - k * Math.cos(tk), y - k * Math.sin(tk), x + k * Math.cos(tk), y + k * Math.sin(tk)]);
+    const na = (a + 90) * Math.PI / 180;
+    t = [(d1[0] + d2[0]) / 2 + Math.cos(na) * off * 0.3, (d1[1] + d2[1]) / 2 + Math.sin(na) * off * 0.3]; ang = upright(a);
+  }
+  return { lines: lines.map(ln), text: up(t), angle: -ang, value };
+}
+function dimLabel(m, value) { return m.text || (m.dim === "angular" ? `${value.toFixed(1)}°` : m.dim === "radius" ? `R${value.toFixed(1)} m` : `${value.toFixed(1)} m`); }
+function cadLayer(name) { return (S.D.cad_layers || []).find((l) => l.name === name); }
+const markupShown = (m) => cadLayer(m.layer || "0")?.visible !== false;
+const markupLocked = (m) => !!cadLayer(m.layer || "0")?.locked;
+
 function markupGeometry(m, xy) {
   const P = m.points.map((p) => xy(p[0], p[1]));
+  if (m.kind === "arc") {
+    const g = arc3(...P), pts = g ? g.pts() : [P[0], P[2]];
+    return { P, segs: pts.slice(1).map((p, k) => [pts[k], p]), arc: g, line: pts };
+  }
+  if (m.kind === "point") return { P, segs: [[P[0], P[0]]] };
   if (m.kind === "circle") {
     const r = Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]);
     return { P, segs: Array.from({ length: 24 }, (_, k) => [0, 1].map((j) => { const a = (k + j) / 24 * 2 * Math.PI; return [P[0][0] + r * Math.cos(a), P[0][1] + r * Math.sin(a)]; })), r };
@@ -420,32 +477,30 @@ function markupGeometry(m, xy) {
   }
   return { P, segs };
 }
-function dimText(m) {
-  const [a, b] = m.points;
-  return m.text || `${hav(a[0], a[1], b[0], b[1]).toFixed(1)} m`;
-}
 function drawMarkups(D, xy, g, r, lab) {
   const out = [];
   const st = (col, w = 1.6) => ({ stroke: col, "stroke-width": w, "vector-effect": "non-scaling-stroke", fill: "none" });
   for (const m of D.markups || []) {
-    const { P, segs, r: rad } = markupGeometry(m, xy), col = m.colour || "#00e5ff";
-    out.push({ id: m.id, segs, pts: P });
-    if (m.kind === "circle") el("circle", { cx: P[0][0], cy: P[0][1], r: rad, ...st(col) }, g);
+    if (!markupShown(m)) continue;  // hidden drafting layer
+    const geo = markupGeometry(m, xy), { P, segs, r: rad } = geo, col = m.colour || "#00e5ff";
+    const fill = m.fill ? { fill: m.fill, "fill-opacity": 0.35 } : {};
+    out.push({ id: m.id, segs, pts: P, locked: markupLocked(m), kind: m.kind, centre: m.kind === "circle" ? P[0] : geo.arc?.c,
+               closed: (m.kind === "polyline" && m.closed) || m.kind === "circle", r: rad ?? geo.arc?.r });
+    if (m.kind === "circle") el("circle", { cx: P[0][0], cy: P[0][1], r: rad, ...st(col), ...fill }, g);
+    else if (m.kind === "arc") el("polyline", { points: geo.line.map((p) => p.join(",")).join(" "), ...st(col) }, g);
+    else if (m.kind === "point") { const k = r * 1.4; el("path", { d: `M${P[0][0] - k} ${P[0][1]}H${P[0][0] + k}M${P[0][0]} ${P[0][1] - k}V${P[0][1] + k}`, ...st(col) }, g); }
     else if (m.kind === "line" || m.kind === "polyline" || m.kind === "leader") {
-      el(m.kind === "polyline" && m.closed ? "polygon" : "polyline", { points: P.map((p) => p.join(",")).join(" "), ...st(col) }, g);
+      el(m.kind === "polyline" && m.closed ? "polygon" : "polyline", { points: P.map((p) => p.join(",")).join(" "), ...st(col), ...(m.closed ? fill : {}) }, g);
       if (m.kind === "leader") {  // arrowhead at the first point
         const [a, b] = P, ang = Math.atan2(b[1] - a[1], b[0] - a[0]), s = r * 2.2;
         el("polygon", { points: [a, [a[0] + s * Math.cos(ang + 0.35), a[1] + s * Math.sin(ang + 0.35)], [a[0] + s * Math.cos(ang - 0.35), a[1] + s * Math.sin(ang - 0.35)]].map((p) => p.join(",")).join(" "), fill: col }, g);
       }
     } else if (m.kind === "dimension") {
-      const [a, b] = P, ang = Math.atan2(b[1] - a[1], b[0] - a[0]), off = m.size * 1.5;
-      const nx = Math.sin(ang) * off, ny = -Math.cos(ang) * off;  // parallel, on the left in screen terms
-      for (const p of [a, b]) el("line", { x1: p[0], y1: p[1], x2: p[0] + nx * 1.25, y2: p[1] + ny * 1.25, ...st(col, 1) }, g);
-      el("line", { x1: a[0] + nx, y1: a[1] + ny, x2: b[0] + nx, y2: b[1] + ny, ...st(col, 1.2) }, g);
-      const deg = ang * 180 / Math.PI, up = deg > 90 || deg < -90 ? deg + 180 : deg;
+      const dg = dimGeometry(m.dim || "aligned", P, m.size * 1.5);
+      dg.lines.forEach(([a, b]) => el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], ...st(col, 1) }, g));
       const t = el("text", { x: 0, y: 0, fill: col, "font-size": m.size, "font-family": "Arial, sans-serif", "text-anchor": "middle",
-        transform: `translate(${(a[0] + b[0]) / 2 + nx * 1.4} ${(a[1] + b[1]) / 2 + ny * 1.4}) rotate(${up})` }, g);
-      t.textContent = dimText(m);
+        transform: `translate(${dg.text[0]} ${dg.text[1]}) rotate(${dg.angle})` }, g);
+      t.textContent = dimLabel(m, dg.value);
     }
     if ((m.kind === "text" || m.kind === "leader") && m.text) {
       const [x, y] = P[P.length - 1];
@@ -498,7 +553,7 @@ function cadPick(p) {
     if (d <= tol * 1.3 && (!best || d < best.d)) best = { d, item: { type: q.type, id: q.id } };
   }
   if (best) return best.item;
-  for (const M of F.marks || []) for (const [a, b] of M.segs) {  // drafting before cables: it sits on top
+  for (const M of (F.marks || []).filter((x) => !x.locked)) for (const [a, b] of M.segs) {  // above cables; locked layers stay put
     const d = segDist(p, a, b);
     if (d <= tol && (!best || d < best.d)) best = { d, item: { type: "markup", id: M.id } };
   }
@@ -510,19 +565,60 @@ function cadPick(p) {
   return best ? best.item : null;
 }
 
-// object snap: the nearest pole, equipment, premise or cable vertex that is not itself being moved
+// object snap (F3; modes in the Osnap list): endpoints and features, midpoints, centres, intersections,
+// perpendicular from the previous point, nearest on a line. Things being moved are skipped.
+const OSNAP = [["end", "Endpoint / feature"], ["mid", "Midpoint"], ["cen", "Centre"], ["int", "Intersection"],
+  ["perp", "Perpendicular"], ["near", "Nearest"]];
+function osnapOn(k) { return (PREFS.cad_osnap || { end: 1, mid: 1, cen: 1, int: 1, perp: 1 })[k]; }
+function snapFrom() {  // the previous point of the drawing or edit in progress
+  return CAD.dpts?.[CAD.dpts.length - 1] || (CAD.op?.base ? [CAD.op.base.x, CAD.op.base.y] : null) || CAD.cmdFrom || null;
+}
+function segCross(a, b, c, d) {
+  const r = [b[0] - a[0], b[1] - a[1]], s = [d[0] - c[0], d[1] - c[1]], den = r[0] * s[1] - r[1] * s[0];
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((c[0] - a[0]) * s[1] - (c[1] - a[1]) * s[0]) / den, u = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den;
+  return t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9 ? [a[0] + t * r[0], a[1] + t * r[1]] : null;
+}
 function cadSnap(p, moving) {
   if (!PREFS.cad_snap) return null;
   const tol = 10 * cadPx(), F = CAD.feats;
   let best = null;
-  const take = (x, y, item) => {
-    if (moving.has(cadKey(item))) return;
+  const take = (x, y, item, mode, rank = 0) => {
+    if (item && moving.has(cadKey(item))) return;
     const d = Math.hypot(x - p.x, y - p.y);
-    if (d <= tol && (!best || d < best.d)) best = { x, y, d, item };
+    if (d <= tol && (!best || d + rank * tol < best.d + best.rank * tol)) best = { x, y, d, item, mode, rank };
   };
-  F.pts.forEach((q) => take(q.true ? q.true[0] : q.x, q.true ? q.true[1] : q.y, { type: q.type, id: q.id }));
-  F.lines.forEach((L) => L.pts.forEach((q, i) => take(q[0], q[1], { type: "vertex", cable: L.id, i })));
-  (F.marks || []).forEach((M) => M.pts.forEach((q, k) => take(q[0], q[1], { type: "mpoint", id: M.id, k })));
+  const marks = (F.marks || []).filter((M) => !moving.has(`mpoint:${M.id}`));
+  if (osnapOn("end")) {
+    F.pts.forEach((q) => take(q.true ? q.true[0] : q.x, q.true ? q.true[1] : q.y, { type: q.type, id: q.id }, "end"));
+    F.lines.forEach((L) => L.pts.forEach((q, i) => take(q[0], q[1], { type: "vertex", cable: L.id, i }, "end")));
+    marks.forEach((M) => M.pts.forEach((q, k) => { if (M.kind !== "circle" || k === 1) take(q[0], q[1], { type: "mpoint", id: M.id, k }, "end"); }));
+  }
+  if (osnapOn("cen")) marks.forEach((M) => { if (M.centre) take(M.centre[0], M.centre[1], null, "cen"); });
+  // segments near the cursor, for midpoints, intersections, perpendicular and nearest
+  const near = [];
+  const consider = (a, b) => { if (segDist(p, a, b) <= tol * 3) near.push([a, b]); };
+  F.lines.forEach((L) => L.pts.slice(1).forEach((q, k) => consider(L.pts[k], q)));
+  marks.forEach((M) => { if (M.kind !== "text" && M.kind !== "point") M.segs.forEach(([a, b]) => consider(a, b)); });
+  if (osnapOn("mid")) {
+    F.lines.forEach((L) => L.pts.slice(1).forEach((q, k) => take((q[0] + L.pts[k][0]) / 2, (q[1] + L.pts[k][1]) / 2, null, "mid")));
+    marks.forEach((M) => { if (["line", "polyline", "leader"].includes(M.kind)) M.segs.forEach(([a, b]) => take((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, null, "mid")); });
+  }
+  if (osnapOn("int")) for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
+    const x = segCross(...near[i], ...near[j]);
+    if (x) take(x[0], x[1], null, "int");
+  }
+  const from = snapFrom();
+  if (osnapOn("perp") && from) near.forEach(([a, b]) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1], l = dx * dx + dy * dy;
+    if (!l) return;
+    const t = ((from[0] - a[0]) * dx + (from[1] - a[1]) * dy) / l;
+    if (t > 0 && t < 1) take(a[0] + t * dx, a[1] + t * dy, null, "perp", 0.3);
+  });
+  if (osnapOn("near") && !best) near.forEach(([a, b]) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1], l = dx * dx + dy * dy, t = l ? Math.max(0, Math.min(1, ((p.x - a[0]) * dx + (p.y - a[1]) * dy) / l)) : 0;
+    take(a[0] + t * dx, a[1] + t * dy, null, "near", 0.6);
+  });
   return best;
 }
 
@@ -566,7 +662,7 @@ function cadApply(f, snap) {
       const v = find("cable", m.cable).path[m.i];
       v.lat = lat; v.lon = lon;
       // a single free vertex dropped on a pole or equipment is attached to it
-      if (ms.length === 1 && snap && (snap.item.type === "pole" || snap.item.type === "node")) {
+      if (ms.length === 1 && snap?.item && (snap.item.type === "pole" || snap.item.type === "node")) {
         const n = snap.item.type === "node" ? find("node", snap.item.id) : null;
         v.node = n ? n.id : null; v.pole = n ? n.pole || null : snap.item.id;
         const at = n || find("pole", snap.item.id);
@@ -697,6 +793,7 @@ const DRAW = { line: "Line: click two points.", pline: "Polyline: click points; 
   angle: "Angle: click a point on one arm, the vertex, then a point on the other arm.", id: "ID point: click a point." };
 CAD.dpts = [];
 function drawPoint(p) {
+  if (CAD.typed) return { q: [p.x, p.y], sn: null };  // a typed coordinate is exact: no snap, no ortho
   const sn = cadSnap(p, new Set()), last = CAD.dpts[CAD.dpts.length - 1];
   let q = sn ? [sn.x, sn.y] : [p.x, p.y];
   if (last && PREFS.cad_ortho && !sn) q = Math.abs(q[0] - last[0]) >= Math.abs(q[1] - last[1]) ? [q[0], last[1]] : [last[0], q[1]];
@@ -712,7 +809,7 @@ const toLatLon = (pts) => pts.map(([x, y]) => CAD.proj.inverse(x, y));
 function addMarkup(kind, pts, extra = {}) {
   S.D.markups ||= [];
   const m = { id: nextMarkupId(), kind, points: toLatLon(pts), closed: false, text: "", size: Math.min(50, Math.max(0.2, +$("#cadSize").value || 2)),
-              colour: $("#cadColour").value || "#00e5ff", ...extra };
+              colour: $("#cadColour").value || "#00e5ff", layer: CAD.curLayer || "0", fill: "", dim: "aligned", ...extra };
   S.D.markups.push(m);
   CAD.sel = [{ type: "markup", id: m.id }]; S.sel = null;
   changed();
@@ -743,7 +840,7 @@ function drawClick(p) {
   }
   pts.push(q);
   const n = pts.length;
-  if (tool === "line" && n === 2) addMarkup("line", pts.splice(0));
+  if (tool === "line" && n === 2) { const seg = pts.splice(0); addMarkup("line", seg); CAD.dpts = [seg[1]]; }  // next line chains on
   else if (tool === "dim" && n === 2) addMarkup("dimension", pts.splice(0));
   else if (tool === "circle" && n === 2) addMarkup("circle", pts.splice(0));
   else if (tool === "rect" && n === 2) { const [a, b] = pts.splice(0); addMarkup("polyline", [a, [b[0], a[1]], b, [a[0], b[1]]], { closed: true }); }
@@ -764,7 +861,7 @@ function drawFinish(close) {
   else if (tool === "area" && pts.length >= 3) {
     showInquiry(pts, true);
     cadMsg(`Area: ${polyArea(pts).toFixed(1)} m² (${(polyArea(pts) / 10000).toFixed(4)} ha), perimeter ${polyLen(pts, true).toFixed(1)} m.`);
-  } else if (pts.length) toast("Not enough points");
+  } else if (pts.length && tool !== "line") toast("Not enough points");
   const g = $("#cadPreview"); if (g) g.innerHTML = "";
 }
 function drawPreview(g, cur) {
@@ -782,26 +879,35 @@ function drawPreview(g, cur) {
 
 function markupProps(box, m) {
   if (!m) return;
-  const P = m.points.map((p) => CAD.proj.xy(p[0], p[1]));
+  const P = m.points.map((p) => CAD.proj.xy(p[0], p[1])), arc = m.kind === "arc" && arc3(...P);
   const info = m.kind === "circle" ? `Radius ${Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]).toFixed(1)} m`
     : m.kind === "polyline" && m.closed ? `Area ${polyArea(P).toFixed(1)} m², perimeter ${polyLen(P, true).toFixed(1)} m`
-    : m.kind === "text" ? "" : `Length ${polyLen(P, false).toFixed(1)} m`;
+    : arc ? `Radius ${arc.r.toFixed(1)} m, length ${(Math.abs(arc.sweep) * arc.r).toFixed(1)} m`
+    : m.kind === "dimension" ? `Measures ${dimLabel({ ...m, text: "" }, dimGeometry(m.dim || "aligned", P, 1).value)}`
+    : ["text", "point"].includes(m.kind) ? "" : `Length ${polyLen(P, false).toFixed(1)} m`;
+  const fillable = (m.kind === "polyline" && m.closed) || m.kind === "circle";
+  const layers = ["0", ...(S.D.cad_layers || []).map((l) => l.name)];
   box.innerHTML = `<h3>${esc(m.kind[0].toUpperCase() + m.kind.slice(1))} ${esc(m.id)}</h3><p class="muted">Drafting: drawn on the LLD / HLD sheets and in the DXF, never counted.</p>
-    <div class="form">${["text", "leader", "dimension"].includes(m.kind) ? `<label>Text${m.kind === "dimension" ? " (empty: the measured length)" : ""}<input data-mk="text" maxlength="300" value="${esc(m.text)}"></label>` : ""}
+    <div class="form">${["text", "leader", "dimension"].includes(m.kind) ? `<label>Text${m.kind === "dimension" ? " (empty: the measured value)" : ""}<input data-mk="text" maxlength="300" value="${esc(m.text)}"></label>` : ""}
+    ${m.kind === "dimension" && (m.dim || "aligned") !== "radius" && m.dim !== "angular" ? `<label>Dimension<select data-mk="dim">${["aligned", "horizontal", "vertical"].map((k) => `<option ${k === (m.dim || "aligned") ? "selected" : ""}>${k}</option>`).join("")}</select></label>` : ""}
+    <label>Layer<select data-mk="layer">${layers.map((l) => `<option ${l === (m.layer || "0") ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
     <label>Text height (m)<input data-mk="size" type="number" min="0.2" max="50" step="0.1" value="${m.size}"></label>
     <label>Colour<input data-mk="colour" type="color" value="${esc(m.colour)}"></label>
+    ${fillable ? `<label class="inline"><input data-mk="hatch" type="checkbox" ${m.fill ? "checked" : ""}> Hatch</label>${m.fill ? `<label>Hatch colour<input data-mk="fill" type="color" value="${esc(m.fill)}"></label>` : ""}` : ""}
     ${m.kind === "polyline" ? `<label class="inline"><input data-mk="closed" type="checkbox" ${m.closed ? "checked" : ""}> Closed</label>` : ""}</div>
     ${info ? `<p>${info}</p>` : ""}`;
   $$("[data-mk]", box).forEach((inp) => inp.addEventListener("change", () => {
     const k = inp.dataset.mk;
-    m[k] = k === "closed" ? inp.checked : k === "size" ? Math.min(50, Math.max(0.2, +inp.value || 2)) : inp.value;
+    if (k === "hatch") m.fill = inp.checked ? m.colour : "";
+    else m[k] = k === "closed" ? inp.checked : k === "size" ? Math.min(50, Math.max(0.2, +inp.value || 2)) : inp.value;
+    if (k === "closed" && !m.closed) m.fill = "";
     changed();
   }));
 }
 
 // Copy: the selected drafting, poles, premises and equipment, shifted by base point -> second point. Copies are
 // proposed and get new IDs; equipment copied with its pole goes on the copy of the pole. Cables are not copied.
-function cadCopyApply(f) {
+function cadCopyApply(f, quiet = false) {  // quiet: return the copies; the caller selects and saves (Array)
   const made = [], poleMap = {};
   const at = (lat, lon) => { const [x, y] = f(...CAD.proj.xy(lat, lon)); return CAD.proj.inverse(x, y); };
   let cables = 0;
@@ -824,6 +930,7 @@ function cadCopyApply(f) {
     [c.lat, c.lon] = p ? [p.lat, p.lon] : at(o.lat, o.lon);
     S.D.nodes.push(c); made.push({ type: "node", id: c.id });
   }
+  if (quiet) return { made, cables };
   CAD.sel = made; S.sel = made.length === 1 && made[0].type !== "markup" ? made[0] : null;
   if (made.length) changed();
   toast(`Copied ${made.length}${cables ? `; ${cables} cable(s) not copied (draw new routes between the copies)` : ""}`, 5000);
@@ -909,7 +1016,7 @@ function cadTools(svg) {
   CAD.sel = (CAD.sel || []).filter((s) => s.type === "vertex" ? !!find("cable", s.cable)?.path[s.i] : ids[s.type]?.has(s.id));
   if (S.sel && !CAD.sel.includes(S.sel)) S.sel = CAD.sel.length === 1 && CAD.sel[0].type !== "vertex" ? CAD.sel[0] : S.sel;
   renderCadProps();
-  const zoomAt = (mx, my, f) => { const v = CAD.vb; CAD.vb = [mx - (mx - v[0]) * f, my - (my - v[1]) * f, v[2] * f, v[3] * f]; apply(); };
+  const zoomAt = (mx, my, f) => { const v = CAD.vb; CAD.prevVb = [...v]; CAD.vb = [mx - (mx - v[0]) * f, my - (my - v[1]) * f, v[2] * f, v[3] * f]; apply(); };
   const msg = cadMsg;
   const overlay = svg.querySelector("#cadOverlay"), preview = svg.querySelector("#cadPreview");
   const unit = () => Math.max(CAD.vb[2], CAD.vb[3]) / 300;
@@ -930,6 +1037,7 @@ function cadTools(svg) {
   const moving = () => new Set(cadMovables().map((m) => m.type === "vertex" ? `v:${m.cable}:${m.i}` : `${m.type}:${m.id}`));
   // the second point of a move / rotate: snapped to a feature, or kept horizontal / vertical with Ortho
   const target = (p) => {
+    if (CAD.typed) return { q: { x: p.x, y: p.y }, sn: null };
     const sn = cadSnap(p, CAD.op?.moving || new Set());
     let q = sn ? { x: sn.x, y: sn.y } : { x: p.x, y: p.y };
     const b = CAD.op?.base;
@@ -943,7 +1051,16 @@ function cadTools(svg) {
     return { f: (x, y) => [b.x + (x - b.x) * c - (y - b.y) * s, b.y + (x - b.x) * s + (y - b.y) * c],
              text: `${(-a * 180 / Math.PI).toFixed(1)}°` };
   };
-  const snapMark = (sn) => { const u = cadPx(); el("rect", { x: sn.x - 5 * u, y: sn.y - 5 * u, width: 10 * u, height: 10 * u, stroke: "#ffd60a", "stroke-width": 2, "vector-effect": "non-scaling-stroke", fill: "none" }, preview); };
+  const snapMark = (sn) => {  // AutoCAD-style marker per snap mode, with its name
+    const u = cadPx(), k = 5 * u, x = sn.x, y = sn.y, a = { stroke: "#ffd60a", "stroke-width": 2, "vector-effect": "non-scaling-stroke", fill: "none" };
+    const shape = { end: `M${x - k} ${y - k}h${2 * k}v${2 * k}h${-2 * k}z`, mid: `M${x} ${y - k}L${x + k} ${y + k}L${x - k} ${y + k}z`,
+      cen: `M${x - k} ${y}a${k} ${k} 0 1 0 ${2 * k} 0a${k} ${k} 0 1 0 ${-2 * k} 0`, int: `M${x - k} ${y - k}L${x + k} ${y + k}M${x + k} ${y - k}L${x - k} ${y + k}`,
+      perp: `M${x - k} ${y + k}H${x + k}M${x - k} ${y + k}V${y - k}M${x - k} ${y}H${x}V${y + k}`, near: `M${x - k} ${y - k}L${x + k} ${y + k}H${x - k}L${x + k} ${y - k}z` }[sn.mode || "end"];
+    el("path", { d: shape, ...a }, preview);
+    el("text", { x: x + 8 * u, y: y + 14 * u, fill: "#ffd60a", "font-size": 10 * u, "font-family": "Arial, sans-serif" }, preview).textContent =
+      (OSNAP.find(([m]) => m === sn.mode) || [, "Endpoint"])[1].split(" /")[0];
+  };
+  CAD.snapMark = snapMark;
   const opPreview = (q, sn) => {
     preview.innerHTML = "";
     const u = cadPx(), col = "#00e5ff";
@@ -963,12 +1080,14 @@ function cadTools(svg) {
     const { f } = opTransform(CAD.op.base);
     cadEnd(); cadApply(f, null);
   };
-  svg.addEventListener("pointerdown", (e) => {
-    const p = svgPoint(svg, e);
-    if (CAD.tool === "measure") { CAD.meas.push(p); drawMeas(); return; }
-    if (DRAW[CAD.tool]) { drawClick(p); return; }
-    if (CAD.op?.kind === "offset") { cadEnd(); cadOffsetApply(p); return; }
-    if (CAD.op) {  // move / rotate / copy: base point, then second point
+  // a point for the tool in progress, clicked or typed on the command line (cad.js); true when one took it
+  const toolPoint = (p) => {
+    if (CAD.cmd) { cadCmdPoint(p); return true; }
+    if (CAD.tool === "measure") { CAD.meas.push(p); drawMeas(); return true; }
+    if (DRAW[CAD.tool]) { drawClick(p); return true; }
+    if (CAD.op?.kind === "offset") { cadEnd(); cadOffsetApply(p); return true; }
+    if (!CAD.op) return false;
+    {  // move / rotate / copy: base point, then second point
       const { q, sn } = target(p);
       if (CAD.op.stage === "base") {
         CAD.op = { ...CAD.op, stage: "second", base: q, moving: CAD.op.kind === "copy" ? new Set() : moving() };
@@ -980,8 +1099,14 @@ function cadTools(svg) {
         cadEnd();
         if (kind === "copy") cadCopyApply(f); else cadApply(f, sn);
       }
-      return;
+      return true;
     }
+  };
+  CAD.toolPoint = toolPoint;
+  svg.addEventListener("pointerdown", (e) => {
+    const p = svgPoint(svg, e);
+    CAD.typed = false;
+    if (toolPoint(p)) return;
     svg.setPointerCapture(e.pointerId);
     if (CAD.tool === "window" || CAD.tool === "select" || e.shiftKey && !cadPick(p)) {
       drag = { win: p, select: CAD.tool !== "window", add: e.shiftKey };
@@ -1006,6 +1131,8 @@ function cadTools(svg) {
       const ll = pr.inverse(p.x, p.y);
       $("#lldCoord").textContent = `X ${p.x.toFixed(1)} m  Y ${(-p.y).toFixed(1)} m  ·  ${ll[0].toFixed(6)}, ${ll[1].toFixed(6)}`;
     }
+    CAD.cursor = [p.x, p.y];
+    if (CAD.cmd) { cadCmdHover(p, preview); return; }
     if (DRAW[CAD.tool]) { const { q, sn } = drawPoint(p); drawPreview(preview, q); if (sn) snapMark(sn); return; }
     if (CAD.op && CAD.op.kind !== "offset") { const { q, sn } = target(p); opPreview(q, sn); if (!drag) return; }
     if (!drag || drag.move) return;
@@ -1032,8 +1159,9 @@ function cadTools(svg) {
       if (drag.select) {  // everything wholly inside the box
         const F = CAD.feats;
         cadSelect([...F.pts.filter((q) => inside(q.x, q.y)).map((q) => ({ type: q.type, id: q.id })),
-                   ...F.lines.filter((l) => l.pts.every((q) => inside(q[0], q[1]))).map((l) => ({ type: "cable", id: l.id }))], drag.add);
-      } else if (w > 1 && h > 1) { CAD.vb = [x0, y0, w, h]; apply(); setCadTool(null); }
+                   ...F.lines.filter((l) => l.pts.every((q) => inside(q[0], q[1]))).map((l) => ({ type: "cable", id: l.id })),
+                   ...(F.marks || []).filter((M) => !M.locked && M.pts.every((q) => inside(q[0], q[1]))).map((M) => ({ type: "markup", id: M.id }))], drag.add);
+      } else if (w > 1 && h > 1) { CAD.prevVb = [...CAD.vb]; CAD.vb = [x0, y0, w, h]; apply(); setCadTool(null); }
     } else if (drag && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) {  // a click, not a pan
       if (drag.hit) cadSelect([drag.hit], drag.add);
       else if (!drag.add) { cadSelect([], false); msg(""); }
@@ -1041,7 +1169,7 @@ function cadTools(svg) {
     drag = null; svg.style.cursor = "";
   });
   drawCadSel();
-  $("#lldFit").onclick = () => { CAD.vb = [...CAD.home]; apply(); };
+  $("#lldFit").onclick = () => { CAD.prevVb = [...CAD.vb]; CAD.vb = [...CAD.home]; apply(); };
   $("#lldIn").onclick = () => zoomAt(CAD.vb[0] + CAD.vb[2] / 2, CAD.vb[1] + CAD.vb[3] / 2, 1 / 1.4);
   $("#lldOut").onclick = () => zoomAt(CAD.vb[0] + CAD.vb[2] / 2, CAD.vb[1] + CAD.vb[3] / 2, 1.4);
   CAD.clearMeas = () => { CAD.meas = []; drawMeas(); msg(""); };

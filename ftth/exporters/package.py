@@ -68,8 +68,8 @@ TITLES = {"hld": "HLD", "lld": "LLD", "pole_summary": "Pole Summary", "bom": "BO
 _BASE = ["info.name", "info.area", "info.client", "info.prepared_by", "info.design_status"]
 _NETWORK = ["poles", "homes", "nodes", "cables", "splitters"]
 DEPENDS = {
-    "hld": _BASE + _NETWORK + ["info.boundary", "rules", "markups", "info.sheet_map"],
-    "lld": _BASE + _NETWORK + ["info.boundary", "rules", "markups", "info.sheet_map"],
+    "hld": _BASE + _NETWORK + ["info.boundary", "rules", "markups", "cad_layers", "info.sheet_map"],
+    "lld": _BASE + _NETWORK + ["info.boundary", "rules", "markups", "cad_layers", "info.sheet_map"],
     "pole_summary": _BASE + ["poles", "nodes", "cables", "rules"],
     "bom": _BASE + _NETWORK + ["rules", "materials", "adjustments"],
     "boq": _BASE + _NETWORK + ["rules", "materials", "adjustments", "info.currency"],

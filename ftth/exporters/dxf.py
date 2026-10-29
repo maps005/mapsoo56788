@@ -15,7 +15,7 @@ from ezdxf.enums import TextEntityAlignment
 from .. import calc, sectors
 from ..geo import LocalProjection, valid_coord
 from ..model import Design
-from . import basemap
+from . import basemap, drafting
 from .common import KIND_COLOURS, Stamp, hex_rgb
 from .labels import LabelPlacer, route_anchors, stacked
 
@@ -40,23 +40,72 @@ def _extents(d: Design, proj, margin=30.0):
             max(p[0] for p in xy) + margin, max(p[1] for p in xy) + margin)
 
 
-def _markups(msp, d: Design, proj) -> None:
-    """The drafting layer as real DXF entities (lines, polylines, circles, text, leaders, aligned dimensions)."""
+def _layer_name(name: str) -> str:
+    """A drafting layer's DXF name ("0" is the MARKUP layer; names keep to what AutoCAD accepts)."""
+    return "MARKUP" if name == "0" else "MK_" + "".join(ch if ch.isalnum() or ch in "-_ " else "_" for ch in name)
+
+
+def _markups(doc, msp, d: Design, proj) -> None:
+    """The drafting as real DXF entities on its layers (hidden drafting layers are switched off)."""
+    for lay in d.cad_layers:
+        name = _layer_name(lay.name)
+        if name not in doc.layers:
+            layer = doc.layers.add(name)
+            layer.rgb = hex_rgb(lay.colour)
+            if not lay.visible:
+                layer.off()
+            if lay.locked:
+                layer.lock()
     for m in d.markups:
         P = [proj.xy(la, lo) for la, lo in m.points]
-        at = {"layer": "MARKUP", "true_color": ezdxf.colors.rgb2int(hex_rgb(m.colour))}
+        layer = _layer_name(m.layer) if m.layer == "0" or any(x.name == m.layer for x in d.cad_layers) else "MARKUP"
+        at = {"layer": layer, "true_color": ezdxf.colors.rgb2int(hex_rgb(m.colour))}
         if m.kind == "line":
             msp.add_line(P[0], P[1], dxfattribs=at)
         elif m.kind == "polyline":
             msp.add_lwpolyline(P, close=m.closed, dxfattribs=at)
+            if m.closed and m.fill:
+                hatch = msp.add_hatch(dxfattribs={**at, "true_color": ezdxf.colors.rgb2int(hex_rgb(m.fill))})
+                hatch.paths.add_polyline_path(P, is_closed=True)
         elif m.kind == "circle":
             (ax, ay), (bx, by) = P
-            msp.add_circle((ax, ay), max(((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5, 0.01), dxfattribs=at)
+            r = max(((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5, 0.01)
+            msp.add_circle((ax, ay), r, dxfattribs=at)
+            if m.fill:
+                hatch = msp.add_hatch(dxfattribs={**at, "true_color": ezdxf.colors.rgb2int(hex_rgb(m.fill))})
+                hatch.paths.add_edge_path().add_arc((ax, ay), r, 0, 360)
+        elif m.kind == "arc":
+            g = drafting.arc3(*P)
+            if g:
+                msp.add_arc((g[0], g[1]), g[2], g[3], g[4], dxfattribs=at)
+            else:
+                msp.add_line(P[0], P[2], dxfattribs=at)
+        elif m.kind == "point":
+            msp.add_point(P[0], dxfattribs=at)
         elif m.kind == "leader":
             msp.add_leader(P, dxfattribs=at)
         elif m.kind == "dimension":
-            dim = msp.add_aligned_dim(p1=P[0], p2=P[1], distance=m.size * 1.5, dimstyle="EZDXF", text=m.text or "<>",
-                                      override={"dimtxt": m.size, "dimasz": m.size * 0.6, "dimdec": 1}, dxfattribs=at)
+            ov = {"dimtxt": m.size, "dimasz": m.size * 0.6, "dimdec": 1}
+            text = m.text or "<>"
+            if m.dim in ("aligned", "horizontal", "vertical"):
+                if m.dim == "aligned":
+                    dim = msp.add_aligned_dim(p1=P[0], p2=P[1], distance=m.size * 1.5, dimstyle="EZDXF", text=text,
+                                              override=ov, dxfattribs=at)
+                else:
+                    level = (max(P[0][1], P[1][1]) + m.size * 1.5) if m.dim == "horizontal" else (max(P[0][0], P[1][0]) + m.size * 1.5)
+                    base = (P[0][0], level) if m.dim == "horizontal" else (level, P[0][1])
+                    dim = msp.add_linear_dim(base=base, p1=P[0], p2=P[1], angle=0 if m.dim == "horizontal" else 90,
+                                             dimstyle="EZDXF", text=text, override=ov, dxfattribs=at)
+            elif m.dim == "radius":
+                (cx, cy), (ex, ey) = P
+                dim = msp.add_radius_dim_2p(center=(cx, cy), mpoint=(ex, ey), dimstyle="EZDXF", text=text, override=ov,
+                                            dxfattribs=at)
+            else:  # angular: arm, vertex, arm
+                (ax, ay), (vx, vy), (bx, by) = P
+                rr = min(((ax - vx) ** 2 + (ay - vy) ** 2) ** 0.5, ((bx - vx) ** 2 + (by - vy) ** 2) ** 0.5) * 0.6
+                mid = drafting.dimension("angular", P, m.size)[1]
+                dim = msp.add_angular_dim_3p(base=mid if rr else (vx + 1, vy + 1), center=(vx, vy), p1=(ax, ay),
+                                             p2=(bx, by), dimstyle="EZDXF", text=text, override=ov, dxfattribs=at)
             dim.render()
         if m.text and m.kind in ("text", "leader"):
             msp.add_text(m.text, height=m.size, dxfattribs=at).set_placement(P[-1], align=TextEntityAlignment.LEFT)
@@ -83,7 +132,7 @@ def build_dxf(d: Design, st: Stamp, map_image: tuple[int, int] | None = None) ->
         img_def = doc.add_image_def(filename=MAP_FILE, size_in_pixel=map_image)
         msp.add_image(img_def, insert=(ext[0], ext[1]), size_in_units=(ext[2] - ext[0], ext[3] - ext[1]),
                       dxfattribs={"layer": "BASEMAP"})
-    _markups(msp, d, proj)
+    _markups(doc, msp, d, proj)
 
     if d.info.boundary:
         msp.add_lwpolyline([proj.xy(la, lo) for la, lo in d.info.boundary], close=True, dxfattribs={"layer": "BOUNDARY"})

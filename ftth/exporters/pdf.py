@@ -24,7 +24,7 @@ from ..geo import LocalProjection, haversine, valid_coord
 from ..model import Design
 from . import report
 from .common import KIND_COLOURS, NODE_LABEL, Stamp, logo_size, markup, photo_path
-from . import basemap
+from . import basemap, drafting
 from .labels import LabelPlacer, route_anchors, stacked
 
 C = lambda h: colors.HexColor(h)  # noqa: E731
@@ -102,19 +102,29 @@ def _sheet_basemap(cv, style, proj, x0, y0, w, h, cx, cy, scale, light):
 
 
 def _draw_markups(cv, d: Design, T, scale, labels):
-    """The drafting layer: lines, shapes, notes, leaders and dimensions, in their own colours."""
+    """The drafting layer: lines, shapes, hatches, notes, leaders and dimensions, in their own colours (markups
+    on hidden layers are left out)."""
     for m in d.markups:
+        if not d.markup_visible(m):
+            continue
         P = [T(la, lo) for la, lo in m.points]
         cv.setStrokeColor(C(m.colour))
         cv.setFillColor(C(m.colour))
         cv.setLineWidth(0.9)
         size = max(4.0, min(m.size * scale, 24.0))
-        if m.kind in ("line", "polyline", "leader"):
+        if m.kind in ("line", "polyline", "leader", "arc"):
             pp = cv.beginPath()
-            for i, xy in enumerate(P):
+            for i, xy in enumerate(drafting.arc_points(*P) if m.kind == "arc" else P):
                 (pp.moveTo if i == 0 else pp.lineTo)(*xy)
-            if m.kind == "polyline" and m.closed:
+            closed = m.kind == "polyline" and m.closed
+            if closed:
                 pp.close()
+            if closed and m.fill:  # hatch: a translucent fill under the outline
+                cv.saveState()
+                cv.setFillColor(C(m.fill))
+                cv.setFillAlpha(0.35)
+                cv.drawPath(pp, stroke=0, fill=1)
+                cv.restoreState()
             cv.drawPath(pp, stroke=1, fill=0)
             if m.kind == "leader" and len(P) >= 2:  # arrowhead at the first point
                 (ax, ay), (bx, by) = P[0], P[1]
@@ -123,24 +133,26 @@ def _draw_markups(cv, d: Design, T, scale, labels):
                     cv.line(ax, ay, ax + 6 * math.cos(a + s), ay + 6 * math.sin(a + s))
         elif m.kind == "circle":
             (ax, ay), (bx, by) = P
+            if m.fill:
+                cv.saveState()
+                cv.setFillColor(C(m.fill))
+                cv.setFillAlpha(0.35)
+                cv.circle(ax, ay, math.hypot(bx - ax, by - ay), stroke=0, fill=1)
+                cv.restoreState()
             cv.circle(ax, ay, math.hypot(bx - ax, by - ay), stroke=1, fill=0)
+        elif m.kind == "point":
+            (ax, ay), k = P[0], 2.5
+            cv.line(ax - k, ay, ax + k, ay)
+            cv.line(ax, ay - k, ax, ay + k)
         elif m.kind == "dimension":
-            (ax, ay), (bx, by) = P
-            a, off = math.atan2(by - ay, bx - ax), 6.0
-            nx, ny = -math.sin(a) * off, math.cos(a) * off  # dimension line parallel to the measured points
-            cv.line(ax, ay, ax + nx * 1.3, ay + ny * 1.3)
-            cv.line(bx, by, bx + nx * 1.3, by + ny * 1.3)
-            cv.line(ax + nx, ay + ny, bx + nx, by + ny)
-            tx, ty = 2.5 * math.cos(a + 0.8), 2.5 * math.sin(a + 0.8)  # architectural ticks at both ends
-            for px, py in ((ax + nx, ay + ny), (bx + nx, by + ny)):
-                cv.line(px - tx, py - ty, px + tx, py + ty)
-            length = haversine(*m.points[0], *m.points[1])
-            text = m.text or f"{length:.1f} m"
+            lines, (tx, ty), ang, value = drafting.dimension(m.dim, P, max(6.0, m.size * scale * 1.5))
+            for ln in lines:
+                cv.line(*ln)
             cv.saveState()
-            cv.translate((ax + bx) / 2 + nx * 1.6, (ay + by) / 2 + ny * 1.6)
-            cv.rotate(math.degrees(a if -math.pi / 2 < a <= math.pi / 2 else a + math.pi))
+            cv.translate(tx, ty)
+            cv.rotate(ang)
             cv.setFont("Helvetica", size)
-            cv.drawCentredString(0, 0, text)
+            cv.drawCentredString(0, 0, drafting.dim_label(m, value if m.dim == "angular" else value / scale))
             cv.restoreState()
             continue
         if m.text and m.kind in ("text", "leader"):

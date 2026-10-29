@@ -258,6 +258,15 @@ details.layers label { color: #dbe4ee !important; font-size: 12px; }
 #cadSize { width: 52px; }
 #cadColour { width: 32px; height: 24px; padding: 0; border: none; background: none; }
 .cadbar + .cadbar { margin-top: 4px; }
+.cadcmd { display: flex; align-items: center; gap: 6px; margin-top: 6px; background: #0b1118; border: 1px solid #24303f;
+  border-radius: 6px; padding: 4px 8px; font-family: Consolas, "Courier New", monospace; }
+.cadcmd span { color: #7fd1ff; font-weight: 600; }
+.cadcmd input { flex: 1; background: transparent; border: none; color: #e6edf3; font-family: inherit; outline: none; }
+#cadOsnapList label { display: block; color: #dbe4ee; white-space: nowrap; }
+.cadlayers { width: 100%; border-collapse: collapse; }
+.cadlayers td, .cadlayers th { padding: 2px 3px; }
+.cadlayers input:not([type]) { width: 100%; }
+.cadlayers input[type=color] { width: 26px; height: 20px; padding: 0; border: none; }
 .cadbar input:not([type=checkbox]):not([type=range]):not([type=color]) { background: #0b1118; color: #e6edf3; border: 1px solid #33404f; }
 @media (max-width: 900px) { .cadwrap { flex-direction: column; } .cadprops { width: auto; max-height: none; } }
 .lldbox.light .lldleg, .lldbox.light .lldtb { background: rgba(255,255,255,.92); color: #111; border-color: #999; }

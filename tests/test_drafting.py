@@ -92,6 +92,39 @@ def test_no_map_by_default_and_no_tiles_fetched(monkeypatch):
     assert calls == []
 
 
+def test_arcs_points_hatches_dimension_types_and_layers_reach_the_dxf_and_pdf():
+    from ftth.exporters import drafting
+    from ftth.model import CadLayer
+    d = sample_design()
+    p = d.poles[0]
+    a, b, c = [p.lat, p.lon], [p.lat + 0.0002, p.lon + 0.0003], [p.lat, p.lon + 0.0004]
+    edge = [p.lat, p.lon + 0.0001]
+    with pytest.raises(ValidationError):  # an angular dimension needs arm, vertex, arm
+        Markup(id="X", kind="dimension", dim="angular", points=[a, b])
+    d.cad_layers = [CadLayer(name="Notes", colour="#ffd60a"), CadLayer(name="Draft", visible=False, locked=True)]
+    d.markups = [Markup(id="A1", kind="arc", points=[a, b, c]), Markup(id="P1", kind="point", points=[b]),
+                 Markup(id="H1", kind="polyline", closed=True, fill="#3ddc84", points=[a, b, c]),
+                 Markup(id="C1", kind="circle", fill="#ff6b6b", points=[a, edge], layer="Notes"),
+                 Markup(id="D1", kind="dimension", dim="horizontal", points=[a, b]),
+                 Markup(id="D2", kind="dimension", dim="vertical", points=[a, b]),
+                 Markup(id="D3", kind="dimension", dim="radius", points=[a, edge]),
+                 Markup(id="D4", kind="dimension", dim="angular", points=[b, a, c]),
+                 Markup(id="T1", kind="text", points=[c], text="Draft only", layer="Draft")]
+    st = stamp(d, 1)
+    doc = ezdxf.read(io.StringIO(dxf.build_dxf(d, st).decode()))
+    found = {(e.dxftype(), e.dxf.layer) for e in doc.modelspace() if e.dxf.layer.startswith(("MARKUP", "MK_"))}
+    assert {("ARC", "MARKUP"), ("POINT", "MARKUP"), ("HATCH", "MARKUP"), ("CIRCLE", "MK_Notes"), ("HATCH", "MK_Notes"),
+            ("DIMENSION", "MARKUP"), ("TEXT", "MK_Draft")} <= found
+    assert doc.layers.get("MK_Draft").is_off() and doc.layers.get("MK_Draft").is_locked()
+    text = " ".join(pg.extract_text() for pg in PdfReader(io.BytesIO(lld.build_lld_pdf(d, st))).pages)
+    assert "Draft only" not in text and "°" in text  # hidden layer left out; the angular dimension is there
+    # three points on the unit circle give that circle; the dimension values are the angle and the run
+    g = drafting.arc3((0, 1), (1, 0), (0, -1))
+    assert g and abs(g[2] - 1) < 1e-9 and abs(g[0]) < 1e-9 and abs(g[1]) < 1e-9
+    assert abs(drafting.dimension("angular", [(1, 0), (0, 0), (0, 1)], 1)[3] - 90) < 1e-9
+    assert abs(drafting.dimension("horizontal", [(0, 0), (3, 4)], 1)[3] - 3) < 1e-9
+
+
 def test_unreachable_tiles_leave_the_sheet_without_a_map(monkeypatch):
     monkeypatch.setattr(basemap, "FETCH", lambda url: None)
     basemap._CACHE.clear()

@@ -271,16 +271,21 @@ class Photo(BaseModel):
         return v
 
 
-MarkupKind = Literal["line", "polyline", "circle", "text", "leader", "dimension"]
-_POINTS = {"line": (2, 2), "polyline": (2, 500), "circle": (2, 2), "text": (1, 1), "leader": (2, 50), "dimension": (2, 2)}
+MarkupKind = Literal["line", "polyline", "circle", "arc", "point", "text", "leader", "dimension"]
+_POINTS = {"line": (2, 2), "polyline": (2, 500), "circle": (2, 2), "arc": (3, 3), "point": (1, 1), "text": (1, 1),
+           "leader": (2, 50), "dimension": (2, 3)}
+_DIM_POINTS = {"aligned": 2, "horizontal": 2, "vertical": 2, "radius": 2, "angular": 3}
+_HEX = re.compile(r"#[0-9a-fA-F]{6}")
 
 
 class Markup(BaseModel):
     """Drafting on the drawing (lines, shapes, notes, leaders, dimensions). Not part of the network: it is never
     counted in quantities or checks, only drawn on the LLD / HLD sheets and in the DXF.
 
-    points are [lat, lon]: a line or dimension has its two ends, a polyline or leader its vertices (a leader's
-    text sits at its last point), a circle its centre and a point on its edge, a text its insertion point."""
+    points are [lat, lon]: a line has its two ends, a polyline or leader its vertices (a leader's text sits at its
+    last point), a circle its centre and a point on its edge, an arc its start, a point on it and its end, a text
+    or point its position. A dimension measures its points: two for aligned / horizontal / vertical, the centre
+    and a point on the edge for radius, and arm - vertex - arm for angular."""
     id: str = Field(max_length=40)
     kind: MarkupKind
     points: list[list[float]]
@@ -288,12 +293,22 @@ class Markup(BaseModel):
     text: str = Field(default="", max_length=300)
     size: float = Field(default=2.0, gt=0, le=50)  # text height, metres on the ground
     colour: str = "#00e5ff"
+    layer: str = Field(default="0", min_length=1, max_length=40)  # a drafting layer (Design.cad_layers) or "0"
+    fill: str = ""                                 # hatch: closed polyline or circle filled with this colour
+    dim: Literal["aligned", "horizontal", "vertical", "radius", "angular"] = "aligned"
 
     @field_validator("colour")
     @classmethod
     def _hex(cls, v: str) -> str:
-        if not re.fullmatch(r"#[0-9a-fA-F]{6}", v):
+        if not _HEX.fullmatch(v):
             raise ValueError("colour must be #rrggbb")
+        return v
+
+    @field_validator("fill")
+    @classmethod
+    def _fill(cls, v: str) -> str:
+        if v and not _HEX.fullmatch(v):
+            raise ValueError("fill must be #rrggbb or empty")
         return v
 
     @field_validator("points")
@@ -306,8 +321,26 @@ class Markup(BaseModel):
 
     def model_post_init(self, _ctx) -> None:
         lo, hi = _POINTS[self.kind]
+        if self.kind == "dimension":
+            lo = hi = _DIM_POINTS[self.dim]
         if not lo <= len(self.points) <= hi:
             raise ValueError(f"a {self.kind} markup needs {lo}{'' if lo == hi else f' to {hi}'} point(s)")
+
+
+class CadLayer(BaseModel):
+    """A drafting layer: markups on a hidden layer are not drawn or exported; on a locked one they cannot be
+    picked for editing. Written to the DXF as a layer of its own."""
+    name: str = Field(min_length=1, max_length=40)
+    colour: str = "#00e5ff"
+    visible: bool = True
+    locked: bool = False
+
+    @field_validator("colour")
+    @classmethod
+    def _hex(cls, v: str) -> str:
+        if not _HEX.fullmatch(v):
+            raise ValueError("colour must be #rrggbb")
+        return v
 
 
 class ProjectInfo(BaseModel):
@@ -365,6 +398,12 @@ class Design(BaseModel):
     rules: Rules = Field(default_factory=Rules)
     photos: list[Photo] = Field(default_factory=list)
     markups: list[Markup] = Field(default_factory=list, max_length=5000)
+    cad_layers: list[CadLayer] = Field(default_factory=list, max_length=100)
+
+    def markup_visible(self, m: Markup) -> bool:
+        """Drawn and exported: its layer is not hidden ("0" and unknown layers always show)."""
+        lay = next((x for x in self.cad_layers if x.name == m.layer), None)
+        return lay is None or lay.visible
 
     # ---- lookups -------------------------------------------------------
     _index: dict = PrivateAttr(default_factory=dict)

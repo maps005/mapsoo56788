@@ -166,7 +166,14 @@
         <button data-draw="circle" title="Circle: centre, then a point on the edge">Circle</button>
         <button data-draw="text" title="Text: type the note in the note box, then click where it goes">Text</button>
         <button data-draw="leader" title="Leader: arrow point, then points; Enter finishes; text from the note box">Leader</button>
-        <button data-draw="dim" title="Dimension: the two points to measure">Dim</button>
+        <button data-cmd="arc" title="Arc through three points (A)">Arc</button>
+        <button data-cmd="polygon" title="Regular polygon: sides, centre, corner (POL)">Polygon</button>
+        <button data-cmd="point" title="Point marker (PO)">Point</button>
+        <button data-cmd="hatch" title="Hatch: fill a closed shape with the current colour (H)">Hatch</button>
+        <button data-draw="dim" title="Aligned dimension: the two points to measure (DAL)">Dim</button>
+        <button data-cmd="dimlinear" title="Horizontal / vertical dimension (DLI)">DimLin</button>
+        <button data-cmd="dimradius" title="Radius of a circle or arc (DRA)">DimRad</button>
+        <button data-cmd="dimangular" title="Angle: arm, vertex, arm (DAN)">DimAng</button>
         <input id="cadNote" maxlength="300" placeholder="note text" title="Text for Text and Leader">
         <label class="muted" title="Text height on the ground">H <input id="cadSize" type="number" min="0.2" max="50" step="0.1" value="2"> m</label>
         <input id="cadColour" type="color" value="#00e5ff" title="Colour of new drafting">
@@ -180,7 +187,26 @@
         <button id="cadOffset" title="Offset a drafting line, polyline or circle: distance, then side">Offset</button>
         <input id="cadDist" type="number" min="0" step="any" placeholder="offset m" title="Offset distance in metres" hidden>
       </div>
+      <div class="row cadbar">
+        <span class="muted">Modify</span>
+        <button data-cmd="scale" title="Scale the selection about a base point by a typed factor (SC)">Scale</button>
+        <button data-cmd="mirror" title="Mirrored copies of the selection about a line (MI)">Mirror</button>
+        <button data-cmd="array" title="Rectangular array of the selection: rows columns spacings (AR)">Array</button>
+        <button data-cmd="arraypolar" title="Polar array of the selection about a centre (ARP)">Polar</button>
+        <button data-cmd="trim" title="Trim drafting lines at their crossings (TR)">Trim</button>
+        <button data-cmd="extend" title="Extend a drafting line to the next line (EX)">Extend</button>
+        <button data-cmd="fillet" title="Fillet two drafting lines with a radius (F; 0 = sharp corner)">Fillet</button>
+        <button data-cmd="join" title="Join selected drafting lines into one polyline (J)">Join</button>
+        <button data-cmd="explode" title="Explode polylines, leaders and dimensions into lines and text (X)">Explode</button>
+        <button data-cmd="break" title="Break a drafting line between two points (BR)">Break</button>
+        <button data-cmd="matchprop" title="Copy colour, layer, size and hatch from one drafting to others (MA)">Match</button>
+        <span class="sep"></span>
+        <details class="layers" id="cadOsnap"><summary>Osnap</summary><div id="cadOsnapList"></div></details>
+        <button id="cadLayers" title="Drafting layers: current, colour, on/off, lock (LA)">Layers…</button>
+      </div>
       <div class="cadwrap"><div id="lldBig" class="lldbox big"></div><aside id="cadProps" class="cadprops" hidden></aside></div>
+      <div class="cadcmd"><span>Command:</span><input id="cadCmd" autocomplete="off" spellcheck="false"
+        placeholder="type a command (L, PL, C, A, M, CO, RO, SC, MI, TR, F, LA...) or a point (x,y  @dx,dy  @d<angle); ? lists them"></div>
       <div id="lldMsg" class="muted"></div>
       <p class="muted">Same data as the DXF and the A3 PDF sheets. Open the DXF in AutoCAD and save as DWG if a native DWG file is required.</p>
     </div>
@@ -428,6 +454,7 @@
 <script src="{% static 'planner/app.js' %}"></script>
 <script src="{% static 'planner/overview.js' %}"></script>
 <script src="{% static 'planner/tools.js' %}"></script>
+<script src="{% static 'planner/cad.js' %}"></script>
 <script src="{% static 'planner/assistant.js' %}"></script>
 <script src="{% static 'planner/share.js' %}"></script>
 <script src="{% static 'planner/sector.js' %}"></script>
