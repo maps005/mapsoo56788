@@ -982,11 +982,11 @@ $$("[data-rev]").forEach((b) => b.addEventListener("click", async () => {
 // ---------------------------------------------------------------------------
 // Outputs
 // ---------------------------------------------------------------------------
-const FORMAT_LABEL = { zip: "CSV (zip)", xlsx: "Excel", docx: "Word" };
+const FORMAT_LABEL = { zip: "CSV (zip)", xlsx: "Excel", docx: "Word", "lld.zip": "DXF + map (zip)" };
 function renderOutputs() {
   const outs = S.st.outputs;
   $("#outputs").innerHTML = Object.entries(outs).map(([k, o]) => `<div class="outrow"><span class="name">${esc(o.title)}</span>
-    ${o.formats.map((f) => `<a href="/api/projects/${S.pid}/export/${k}.${f}" data-dl><button>${FORMAT_LABEL[f] || f.toUpperCase()}</button></a>`).join("")}
+    ${o.formats.map((f) => `<a href="/api/projects/${S.pid}/export/${k}.${f}" data-dl><button>${FORMAT_LABEL[`${k}.${f}`] || FORMAT_LABEL[f] || f.toUpperCase()}</button></a>`).join("")}
     <span class="spacer"></span>${!o.last ? `<span class="muted">not generated yet</span>` : o.stale ? `<span class="stale">Needs regenerating (design changed since last generated from data ${esc(o.last.hash)})</span>` : `<span class="fresh">Up to date (${esc(o.last.created.slice(0, 16).replace("T", " "))})</span>`}</div>`).join("");
   $$("#outputs [data-dl]").forEach((a) => a.addEventListener("click", async (e) => {
     if (S.dirty || S.timer) { e.preventDefault(); await flush(); window.location = a.href; }

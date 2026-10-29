@@ -6,19 +6,24 @@ metres in a local plane centred on the project (origin recorded in the title blo
 from __future__ import annotations
 
 import io
+import zipfile
 
 import ezdxf
+import ezdxf.colors
 from ezdxf.enums import TextEntityAlignment
 
 from .. import calc, sectors
 from ..geo import LocalProjection, valid_coord
 from ..model import Design
+from . import basemap
 from .common import KIND_COLOURS, Stamp, hex_rgb
 from .labels import LabelPlacer, route_anchors, stacked
 
 LAYERS = {"DUCTS": "#3584e4", "BOUNDARY": "#888888", "POLES": KIND_COLOURS["pole"], "HOMES": KIND_COLOURS["home"],
           "CABLE_MAIN": KIND_COLOURS["main"], "CABLE_SPUR": KIND_COLOURS["spur"], "CABLE_DROP": KIND_COLOURS["drop"],
-          "EQUIPMENT": KIND_COLOURS["ENCLOSURE"], "LABELS": "#ffffff", "DROPS": "#77767b", "TITLE": "#ffffff"}
+          "EQUIPMENT": KIND_COLOURS["ENCLOSURE"], "LABELS": "#ffffff", "DROPS": "#77767b", "TITLE": "#ffffff",
+          "MARKUP": "#00e5ff", "BASEMAP": "#808080"}
+MAP_FILE = "map.jpg"  # the map image next to the DXF in the "DXF + map" ZIP
 
 
 def _points(d: Design) -> list[tuple[float, float]]:
@@ -27,7 +32,39 @@ def _points(d: Design) -> list[tuple[float, float]]:
     return pts
 
 
-def build_dxf(d: Design, st: Stamp) -> bytes:
+def _extents(d: Design, proj, margin=30.0):
+    xy = [proj.xy(*p) for p in _points(d)] + [proj.xy(*q) for m in d.markups for q in m.points]
+    if not xy:
+        return None
+    return (min(p[0] for p in xy) - margin, min(p[1] for p in xy) - margin,
+            max(p[0] for p in xy) + margin, max(p[1] for p in xy) + margin)
+
+
+def _markups(msp, d: Design, proj) -> None:
+    """The drafting layer as real DXF entities (lines, polylines, circles, text, leaders, aligned dimensions)."""
+    for m in d.markups:
+        P = [proj.xy(la, lo) for la, lo in m.points]
+        at = {"layer": "MARKUP", "true_color": ezdxf.colors.rgb2int(hex_rgb(m.colour))}
+        if m.kind == "line":
+            msp.add_line(P[0], P[1], dxfattribs=at)
+        elif m.kind == "polyline":
+            msp.add_lwpolyline(P, close=m.closed, dxfattribs=at)
+        elif m.kind == "circle":
+            (ax, ay), (bx, by) = P
+            msp.add_circle((ax, ay), max(((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5, 0.01), dxfattribs=at)
+        elif m.kind == "leader":
+            msp.add_leader(P, dxfattribs=at)
+        elif m.kind == "dimension":
+            dim = msp.add_aligned_dim(p1=P[0], p2=P[1], distance=m.size * 1.5, dimstyle="EZDXF", text=m.text or "<>",
+                                      override={"dimtxt": m.size, "dimasz": m.size * 0.6, "dimdec": 1}, dxfattribs=at)
+            dim.render()
+        if m.text and m.kind in ("text", "leader"):
+            msp.add_text(m.text, height=m.size, dxfattribs=at).set_placement(P[-1], align=TextEntityAlignment.LEFT)
+
+
+def build_dxf(d: Design, st: Stamp, map_image: tuple[int, int] | None = None) -> bytes:
+    """The LLD drawing. map_image = (width, height) in pixels of MAP_FILE, placed under the drawing extents
+    (built by build_dxf_zip, which ships the image next to the DXF)."""
     pts = _points(d)
     proj = LocalProjection.for_points(pts)
     doc = ezdxf.new("R2010", setup=True)
@@ -40,6 +77,13 @@ def build_dxf(d: Design, st: Stamp) -> bytes:
 
     def label(x, y, text, layer="LABELS", h=th):
         msp.add_text(text, height=h, dxfattribs={"layer": layer}).set_placement((x, y), align=TextEntityAlignment.LEFT)
+
+    ext = _extents(d, proj)
+    if map_image and ext:  # first, so everything else draws over it
+        img_def = doc.add_image_def(filename=MAP_FILE, size_in_pixel=map_image)
+        msp.add_image(img_def, insert=(ext[0], ext[1]), size_in_units=(ext[2] - ext[0], ext[3] - ext[1]),
+                      dxfattribs={"layer": "BASEMAP"})
+    _markups(msp, d, proj)
 
     if d.info.boundary:
         msp.add_lwpolyline([proj.xy(la, lo) for la, lo in d.info.boundary], close=True, dxfattribs={"layer": "BOUNDARY"})
@@ -146,3 +190,35 @@ def build_dxf(d: Design, st: Stamp) -> bytes:
     buf = io.StringIO()
     doc.write(buf)
     return buf.getvalue().encode("utf-8")
+
+
+def build_dxf_zip(d: Design, st: Stamp) -> bytes:
+    """The DXF with the project's map (Settings: map on PDF / DXF) as an image under the drawing: a DXF cannot
+    embed images, so map.jpg ships next to it (keep them in one folder), with a world file for GIS."""
+    proj = LocalProjection.for_points(_points(d))
+    ext = _extents(d, proj)
+    style = d.info.sheet_map
+    img = None
+    if ext and style != "off":
+        (south, west), (north, east) = proj.latlon(ext[0], ext[1]), proj.latlon(ext[2], ext[3])
+        img = basemap.image(style, south, west, north, east, min(4096, max(512, round((ext[2] - ext[0]) * 2))))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in d.info.name).strip("_") or "project"
+        z.writestr(f"{name}_LLD.dxf", build_dxf(d, st, img.size if img else None))
+        if img:
+            jpg = io.BytesIO()
+            img.save(jpg, "JPEG", quality=85)
+            z.writestr(MAP_FILE, jpg.getvalue())
+            px, py = (ext[2] - ext[0]) / img.size[0], (ext[3] - ext[1]) / img.size[1]
+            # world file: pixel size and the centre of the top-left pixel, in the DXF's local metres
+            z.writestr("map.jgw", f"{px:.6f}\n0\n0\n{-py:.6f}\n{ext[0] + px / 2:.4f}\n{ext[3] - py / 2:.4f}\n")
+        z.writestr("README.txt", (
+            f"{d.info.name} - LLD drawing with map\n\n"
+            f"Keep {MAP_FILE} in the same folder as the DXF: AutoCAD shows it as an image under the drawing "
+            f"(layer BASEMAP; Insert > Reference manager if it is not found).\n"
+            f"Map: {basemap.attribution(style)}.\n" if img else
+            f"{d.info.name} - LLD drawing\n\n" + (
+                "No map: choose Streets or Satellite under 'Map on PDF / DXF' in the LLD drawing tab.\n"
+                if style == "off" else "The map tiles could not be fetched, so this ZIP has the DXF only.\n")))
+    return out.getvalue()

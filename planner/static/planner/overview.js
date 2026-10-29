@@ -226,7 +226,7 @@ function el(tag, attrs, parent) {
 
 const CAD_LAYERS = [["boundary", "Project boundary"], ["drops", "Drop links"], ["existing", "Existing cables"], ["main", "48C main cables"],
   ["spur", "12C spur cables"], ["buildings", "Buildings / premises"], ["poles", "Poles"], ["equipment", "Equipment"],
-  ["labels", "Equipment labels"], ["tags", "Cable tags"], ["grid", "Grid"]];
+  ["labels", "Equipment labels"], ["tags", "Cable tags"], ["markup", "Drafting (markups)"], ["grid", "Grid"]];
 const CAD = { home: null, vb: null, tool: null, meas: [], proj: null, pid: null, feats: { pts: [], lines: [] }, sel: [], op: null };
 
 function drawLld(box, big) {
@@ -257,7 +257,7 @@ function drawLld(box, big) {
     el("line", { x1: gx, y1: y0 - span, x2: gx, y2: y1 + span, stroke: dark ? "#1d2a36" : "#e3e8ee", ...stroke(0.6) }, Lg.grid);
   for (let gy = Math.floor((y0 - span) / step) * step; gy < y1 + span; gy += step)
     el("line", { x1: x0 - span, y1: gy, x2: x1 + span, y2: gy, stroke: dark ? "#1d2a36" : "#e3e8ee", ...stroke(0.6) }, Lg.grid);
-  for (const k of ["boundary", "drops", "existing", "main", "spur", "buildings", "poles", "equipment", "labels", "tags"]) Lg[k] = layer(k);
+  for (const k of ["boundary", "drops", "existing", "main", "spur", "buildings", "poles", "equipment", "markup", "labels", "tags"]) Lg[k] = layer(k);
   if (D.info.boundary.length) el("polygon", { points: D.info.boundary.map((b) => xy(b[0], b[1]).join(",")).join(" "), stroke: dark ? "#cfd8dc" : "#555", "stroke-dasharray": "6 4", ...stroke(1) }, Lg.boundary);
   const fats = Object.fromEntries(D.nodes.filter((n) => n.kind === "FAT").map((n) => [n.id, n]));
   for (const h of D.homes) {
@@ -310,6 +310,7 @@ function drawLld(box, big) {
     else el("rect", { x: x - s * 0.9, y: y - s * 0.9, width: s * 1.8, height: s * 1.8, fill: col }, g);
     if (big || ["POP", "PON", "ENCLOSURE"].includes(n.kind)) toLabel.push([n, x, y, s]);
   }
+  feats.marks = drawMarkups(D, xy, Lg.markup, r, lab);
   const text = (layer, pos, attrs, content) => {
     if (pos.leader) { const [a, b, c2, d2] = pos.leader; el("line", { x1: a, y1: b, x2: c2, y2: d2, stroke: attrs.fill || fg, ...stroke(0.5) }, layer); }
     el("text", { x: pos.x, y: pos.y, ...attrs }, layer).textContent = content;
@@ -403,6 +404,58 @@ function labelPlacer(cell) {
   };
 }
 
+// The drafting layer (design.markups): lines, polylines, circles, notes, leaders and dimensions in drawing
+// metres. Returns their outlines for picking and snapping.
+function markupGeometry(m, xy) {
+  const P = m.points.map((p) => xy(p[0], p[1]));
+  if (m.kind === "circle") {
+    const r = Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]);
+    return { P, segs: Array.from({ length: 24 }, (_, k) => [0, 1].map((j) => { const a = (k + j) / 24 * 2 * Math.PI; return [P[0][0] + r * Math.cos(a), P[0][1] + r * Math.sin(a)]; })), r };
+  }
+  const segs = P.slice(1).map((p, k) => [P[k], p]);
+  if (m.kind === "polyline" && m.closed && P.length > 2) segs.push([P[P.length - 1], P[0]]);
+  if (m.kind === "text") {  // the note's box
+    const w = (m.text || "").length * m.size * 0.58, [x, y] = P[0];
+    segs.push([[x, y], [x + w, y]], [[x + w, y], [x + w, y - m.size]], [[x + w, y - m.size], [x, y - m.size]], [[x, y - m.size], [x, y]]);
+  }
+  return { P, segs };
+}
+function dimText(m) {
+  const [a, b] = m.points;
+  return m.text || `${hav(a[0], a[1], b[0], b[1]).toFixed(1)} m`;
+}
+function drawMarkups(D, xy, g, r, lab) {
+  const out = [];
+  const st = (col, w = 1.6) => ({ stroke: col, "stroke-width": w, "vector-effect": "non-scaling-stroke", fill: "none" });
+  for (const m of D.markups || []) {
+    const { P, segs, r: rad } = markupGeometry(m, xy), col = m.colour || "#00e5ff";
+    out.push({ id: m.id, segs, pts: P });
+    if (m.kind === "circle") el("circle", { cx: P[0][0], cy: P[0][1], r: rad, ...st(col) }, g);
+    else if (m.kind === "line" || m.kind === "polyline" || m.kind === "leader") {
+      el(m.kind === "polyline" && m.closed ? "polygon" : "polyline", { points: P.map((p) => p.join(",")).join(" "), ...st(col) }, g);
+      if (m.kind === "leader") {  // arrowhead at the first point
+        const [a, b] = P, ang = Math.atan2(b[1] - a[1], b[0] - a[0]), s = r * 2.2;
+        el("polygon", { points: [a, [a[0] + s * Math.cos(ang + 0.35), a[1] + s * Math.sin(ang + 0.35)], [a[0] + s * Math.cos(ang - 0.35), a[1] + s * Math.sin(ang - 0.35)]].map((p) => p.join(",")).join(" "), fill: col }, g);
+      }
+    } else if (m.kind === "dimension") {
+      const [a, b] = P, ang = Math.atan2(b[1] - a[1], b[0] - a[0]), off = m.size * 1.5;
+      const nx = Math.sin(ang) * off, ny = -Math.cos(ang) * off;  // parallel, on the left in screen terms
+      for (const p of [a, b]) el("line", { x1: p[0], y1: p[1], x2: p[0] + nx * 1.25, y2: p[1] + ny * 1.25, ...st(col, 1) }, g);
+      el("line", { x1: a[0] + nx, y1: a[1] + ny, x2: b[0] + nx, y2: b[1] + ny, ...st(col, 1.2) }, g);
+      const deg = ang * 180 / Math.PI, up = deg > 90 || deg < -90 ? deg + 180 : deg;
+      const t = el("text", { x: 0, y: 0, fill: col, "font-size": m.size, "font-family": "Arial, sans-serif", "text-anchor": "middle",
+        transform: `translate(${(a[0] + b[0]) / 2 + nx * 1.4} ${(a[1] + b[1]) / 2 + ny * 1.4}) rotate(${up})` }, g);
+      t.textContent = dimText(m);
+    }
+    if ((m.kind === "text" || m.kind === "leader") && m.text) {
+      const [x, y] = P[P.length - 1];
+      el("text", { x: x + (m.kind === "leader" ? r : 0), y, fill: col, "font-size": m.size, "font-family": "Arial, sans-serif" }, g).textContent = m.text;
+      lab.block(x + m.text.length * m.size * 0.29, y - m.size / 2, Math.max(m.size, m.text.length * m.size * 0.29));
+    }
+  }
+  return out;
+}
+
 function star(cx, cy, ro, ri) {
   const p = [];
   for (let k = 0; k < 10; k++) { const a = Math.PI / 5 * k - Math.PI / 2, rr = k % 2 ? ri : ro; p.push(`${cx + rr * Math.cos(a)},${cy + rr * Math.sin(a)}`); }
@@ -445,6 +498,11 @@ function cadPick(p) {
     if (d <= tol * 1.3 && (!best || d < best.d)) best = { d, item: { type: q.type, id: q.id } };
   }
   if (best) return best.item;
+  for (const M of F.marks || []) for (const [a, b] of M.segs) {  // drafting before cables: it sits on top
+    const d = segDist(p, a, b);
+    if (d <= tol && (!best || d < best.d)) best = { d, item: { type: "markup", id: M.id } };
+  }
+  if (best) return best.item;
   for (const L of F.lines) for (let k = 1; k < L.pts.length; k++) {
     const d = segDist(p, L.pts[k - 1], L.pts[k]);
     if (d <= tol && (!best || d < best.d)) best = { d, item: { type: "cable", id: L.id } };
@@ -464,6 +522,7 @@ function cadSnap(p, moving) {
   };
   F.pts.forEach((q) => take(q.true ? q.true[0] : q.x, q.true ? q.true[1] : q.y, { type: q.type, id: q.id }));
   F.lines.forEach((L) => L.pts.forEach((q, i) => take(q[0], q[1], { type: "vertex", cable: L.id, i })));
+  (F.marks || []).forEach((M) => M.pts.forEach((q, k) => take(q[0], q[1], { type: "mpoint", id: M.id, k })));
   return best;
 }
 
@@ -477,6 +536,9 @@ function cadMovables() {
     if (s.type === "pole" || s.type === "home") {
       const q = F.pts.find((x) => x.type === s.type && x.id === s.id);
       if (q) add(cadKey(s), { ...s, x: q.x, y: q.y });
+    } else if (s.type === "markup") {  // every point of the drafting moves
+      const M = (F.marks || []).find((x) => x.id === s.id);
+      M?.pts.forEach((q, k) => add(`mpoint:${s.id}:${k}`, { type: "mpoint", id: s.id, k, x: q[0], y: q[1] }));
     } else if (s.type === "node") {
       const n = find("node", s.id), q = F.pts.find((x) => x.type === "node" && x.id === s.id);
       if (n && q && !(n.pole && selPoles.has(n.pole))) add(cadKey(s), { ...s, x: q.true[0], y: q.true[1] });
@@ -498,7 +560,9 @@ function cadApply(f, snap) {
   if (!ms.length) return toast("Nothing to move: vertices on a pole or equipment move with it - select the pole instead", 6000);
   for (const m of ms) {
     const [x, y] = f(m.x, m.y), [lat, lon] = CAD.proj.inverse(x, y);
-    if (m.type === "vertex") {
+    if (m.type === "mpoint") {
+      S.D.markups.find((k) => k.id === m.id).points[m.k] = [lat, lon];
+    } else if (m.type === "vertex") {
       const v = find("cable", m.cable).path[m.i];
       v.lat = lat; v.lon = lon;
       // a single free vertex dropped on a pole or equipment is attached to it
@@ -528,8 +592,10 @@ function cadDelete() {
       else c.path.splice(i, 1);
     }
   }
+  const marks = new Set(CAD.sel.filter((x) => x.type === "markup").map((x) => x.id));
+  if (marks.size) S.D.markups = S.D.markups.filter((m) => !marks.has(m.id));
   const order = { cable: 0, node: 1, home: 2, pole: 3 };  // cables first, so their poles and equipment come free
-  for (const s of CAD.sel.filter((x) => x.type !== "vertex").sort((a, b) => order[a.type] - order[b.type])) {
+  for (const s of CAD.sel.filter((x) => x.type in order).sort((a, b) => order[a.type] - order[b.type])) {
     const why = deleteFeature(s.type, s.id);
     if (why) errs.push(why);
   }
@@ -544,7 +610,7 @@ function cadSelect(items, add) {
     const k = cadKey(it), i = CAD.sel.findIndex((s) => cadKey(s) === k);
     if (i >= 0 && add && items.length === 1) CAD.sel.splice(i, 1); else if (i < 0) CAD.sel.push(it);
   }
-  S.sel = CAD.sel.length === 1 && CAD.sel[0].type !== "vertex" ? CAD.sel[0] : null;
+  S.sel = CAD.sel.length === 1 && !["vertex", "markup"].includes(CAD.sel[0].type) ? CAD.sel[0] : null;
   drawCadSel(); renderCadProps();
   if (CAD.sel.length) cadMsg(`${CAD.sel.length} selected. Move (M), Rotate (R) or Delete (Del); Esc clears.`);
 }
@@ -555,6 +621,12 @@ function drawCadSel() {
   g.innerHTML = "";
   const F = CAD.feats, u = cadPx(), col = "#00e5ff";
   for (const s of CAD.sel) {
+    if (s.type === "markup") {
+      const M = (F.marks || []).find((x) => x.id === s.id);
+      M?.segs.forEach(([a, b]) => el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: col, "stroke-width": 4, "stroke-opacity": 0.5, "vector-effect": "non-scaling-stroke" }, g));
+      M?.pts.forEach((p) => el("rect", { x: p[0] - 3 * u, y: p[1] - 3 * u, width: 6 * u, height: 6 * u, fill: col }, g));
+      continue;
+    }
     if (s.type === "cable" || s.type === "vertex") {
       const L = F.lines.find((l) => l.id === (s.type === "cable" ? s.id : s.cable));
       if (L && s.type === "cable") el("polyline", { points: L.pts.map((p) => p.join(",")).join(" "), stroke: col, "stroke-width": 5, "stroke-opacity": 0.55, "vector-effect": "non-scaling-stroke", fill: "none" }, g);
@@ -576,6 +648,7 @@ function renderCadProps() {
   box.hidden = !CAD.sel.length;
   if (!CAD.sel.length) return;
   if (S.sel) return renderPropsInto(box);
+  if (CAD.sel.length === 1 && CAD.sel[0].type === "markup") return markupProps(box, S.D.markups.find((m) => m.id === CAD.sel[0].id));
   if (CAD.sel.length === 1) {  // a cable vertex
     const s = CAD.sel[0], v = find("cable", s.cable)?.path[s.i];
     if (!v) return;
@@ -589,18 +662,201 @@ function renderCadProps() {
     <p class="muted">Move (M) and Rotate (R) act on all of them; vertices on a pole or equipment follow it. Delete (Del) removes them.</p>`;
 }
 
+const OP_BUTTON = { move: "#cadMove", rotate: "#cadRotate", copy: "#cadCopy", offset: "#cadOffset" };
 function cadStart(kind) {
   if (!CAD.sel.length) return toast(`Select what to ${kind} first (click it, or Select and drag a box)`);
-  setCadTool(null);
-  CAD.op = { kind, stage: "base" };
-  $("#cadMove").classList.toggle("active", kind === "move"); $("#cadRotate").classList.toggle("active", kind === "rotate");
+  if (kind === "offset") {
+    const m = CAD.sel.length === 1 && CAD.sel[0].type === "markup" && S.D.markups.find((x) => x.id === CAD.sel[0].id);
+    if (!m || !["line", "polyline", "circle"].includes(m.kind)) return toast("Offset works on one drafting line, polyline, rectangle or circle");
+  }
+  if (CAD.tool) setCadTool(CAD.tool);
+  CAD.op = { kind, stage: kind === "offset" ? "side" : "base" };
+  for (const [k, b] of Object.entries(OP_BUTTON)) $(b).classList.toggle("active", k === kind);
   $("#cadAngle").hidden = kind !== "rotate"; $("#cadAngle").value = "";
-  cadMsg(`${kind === "move" ? "Move" : "Rotate"}: click the base point${PREFS.cad_snap ? " (snaps to features)" : ""}. Esc cancels.`);
+  $("#cadDist").hidden = kind !== "offset";
+  if (kind === "offset") { $("#cadDist").focus(); return cadMsg("Offset: type the distance (m) in the box, then click the side to offset to. Esc cancels."); }
+  cadMsg(`${kind[0].toUpperCase() + kind.slice(1)}: click the base point${PREFS.cad_snap ? " (snaps to features)" : ""}. Esc cancels.`);
 }
 function cadEnd() {
   CAD.op = null;
-  $("#cadMove").classList.remove("active"); $("#cadRotate").classList.remove("active"); $("#cadAngle").hidden = true;
+  cadMsg("");
+  for (const b of Object.values(OP_BUTTON)) $(b).classList.remove("active");
+  $("#cadAngle").hidden = true; $("#cadDist").hidden = true;
   const g = $("#cadPreview"); if (g) g.innerHTML = "";
+}
+
+// ---- drafting, inquiry, copy and offset --------------------------------------------------------------------
+// Draw tools add design.markups (saved with the project, drawn on the LLD / HLD sheets and in the DXF; never
+// counted). Inquiry tools only report. Points snap to features and drafting (Snap) and follow Ortho from the
+// previous point.
+const DRAW = { line: "Line: click two points.", pline: "Polyline: click points; Enter or double-click finishes, C closes it.",
+  rect: "Rectangle: click two opposite corners.", circle: "Circle: click the centre, then a point on the edge.",
+  text: "Text: type the note in the note box, then click where it goes.",
+  leader: "Leader: click the arrow point, then the bend / text points; Enter finishes (text from the note box).",
+  dim: "Dimension: click the two points to measure.", area: "Area: click the corners; Enter or double-click finishes.",
+  angle: "Angle: click a point on one arm, the vertex, then a point on the other arm.", id: "ID point: click a point." };
+CAD.dpts = [];
+function drawPoint(p) {
+  const sn = cadSnap(p, new Set()), last = CAD.dpts[CAD.dpts.length - 1];
+  let q = sn ? [sn.x, sn.y] : [p.x, p.y];
+  if (last && PREFS.cad_ortho && !sn) q = Math.abs(q[0] - last[0]) >= Math.abs(q[1] - last[1]) ? [q[0], last[1]] : [last[0], q[1]];
+  return { q, sn };
+}
+function nextMarkupId() {
+  const ids = new Set((S.D.markups || []).map((m) => m.id));
+  let i = 1;
+  while (ids.has(`MK${String(i).padStart(3, "0")}`)) i++;
+  return `MK${String(i).padStart(3, "0")}`;
+}
+const toLatLon = (pts) => pts.map(([x, y]) => CAD.proj.inverse(x, y));
+function addMarkup(kind, pts, extra = {}) {
+  S.D.markups ||= [];
+  const m = { id: nextMarkupId(), kind, points: toLatLon(pts), closed: false, text: "", size: Math.min(50, Math.max(0.2, +$("#cadSize").value || 2)),
+              colour: $("#cadColour").value || "#00e5ff", ...extra };
+  S.D.markups.push(m);
+  CAD.sel = [{ type: "markup", id: m.id }]; S.sel = null;
+  changed();
+  return m;
+}
+function polyArea(P) { let a = 0; P.forEach((p, k) => { const q = P[(k + 1) % P.length]; a += p[0] * q[1] - q[0] * p[1]; }); return Math.abs(a) / 2; }
+function polyLen(P, closed) { let l = 0; P.forEach((p, k) => { if (k || closed) { const q = P[(k || P.length) - 1]; l += Math.hypot(p[0] - q[0], p[1] - q[1]); } }); return l; }
+function showInquiry(P, closed) {  // the measured shape stays on screen until the next tool or Esc
+  const g = $("#cadOverlay");
+  if (!g) return;
+  g.innerHTML = "";
+  el(closed ? "polygon" : "polyline", { points: P.map((p) => p.join(",")).join(" "), stroke: "#00e5ff", "stroke-width": 2, "vector-effect": "non-scaling-stroke",
+    fill: closed ? "rgba(0,229,255,.15)" : "none", "stroke-dasharray": "6 4" }, g);
+}
+function drawClick(p) {
+  const tool = CAD.tool, { q } = drawPoint(p), pts = CAD.dpts;
+  if (tool === "id") {
+    const [la, lo] = CAD.proj.inverse(q[0], q[1]), t = `${la.toFixed(6)}, ${lo.toFixed(6)}`;
+    cadMsg(`Point: X ${q[0].toFixed(2)} m  Y ${(-q[1]).toFixed(2)} m  ·  ${t} (copied)`);
+    navigator.clipboard?.writeText(t).catch(() => {});
+    return;
+  }
+  if (tool === "text") {
+    const note = $("#cadNote").value.trim();
+    if (!note) { $("#cadNote").focus(); return toast("Type the note in the note box first"); }
+    addMarkup("text", [q], { text: note });
+    return;
+  }
+  pts.push(q);
+  const n = pts.length;
+  if (tool === "line" && n === 2) addMarkup("line", pts.splice(0));
+  else if (tool === "dim" && n === 2) addMarkup("dimension", pts.splice(0));
+  else if (tool === "circle" && n === 2) addMarkup("circle", pts.splice(0));
+  else if (tool === "rect" && n === 2) { const [a, b] = pts.splice(0); addMarkup("polyline", [a, [b[0], a[1]], b, [a[0], b[1]]], { closed: true }); }
+  else if (tool === "angle" && n === 3) {
+    const [a, v, b] = pts.splice(0);
+    let d = Math.abs(Math.atan2(a[1] - v[1], a[0] - v[0]) - Math.atan2(b[1] - v[1], b[0] - v[0])) * 180 / Math.PI;
+    if (d > 180) d = 360 - d;
+    showInquiry([a, v, b], false);
+    cadMsg(`Angle: ${d.toFixed(1)}° (and ${(360 - d).toFixed(1)}° the other way round).`);
+    return;
+  } else cadMsg(DRAW[tool] + (n ? ` ${n} point(s).` : ""));
+}
+function drawFinish(close) {
+  const tool = CAD.tool, pts = CAD.dpts.filter((p, k, a) => !k || Math.hypot(p[0] - a[k - 1][0], p[1] - a[k - 1][1]) > cadPx() * 2);
+  CAD.dpts = [];
+  if (tool === "pline" && pts.length >= 2) addMarkup("polyline", pts, { closed: !!close && pts.length > 2 });
+  else if (tool === "leader" && pts.length >= 2) addMarkup("leader", pts, { text: $("#cadNote").value.trim() });
+  else if (tool === "area" && pts.length >= 3) {
+    showInquiry(pts, true);
+    cadMsg(`Area: ${polyArea(pts).toFixed(1)} m² (${(polyArea(pts) / 10000).toFixed(4)} ha), perimeter ${polyLen(pts, true).toFixed(1)} m.`);
+  } else if (pts.length) toast("Not enough points");
+  const g = $("#cadPreview"); if (g) g.innerHTML = "";
+}
+function drawPreview(g, cur) {
+  g.innerHTML = "";
+  const tool = CAD.tool, pts = CAD.dpts, col = $("#cadColour").value || "#00e5ff", u = cadPx();
+  const st = { stroke: col, "stroke-width": 1.5, "vector-effect": "non-scaling-stroke", fill: "none", "stroke-dasharray": "5 4" };
+  if (!pts.length) return;
+  const all = [...pts, cur], last = pts[pts.length - 1], len = Math.hypot(cur[0] - last[0], cur[1] - last[1]);
+  if (tool === "rect") el("polygon", { points: [pts[0], [cur[0], pts[0][1]], cur, [pts[0][0], cur[1]]].map((p) => p.join(",")).join(" "), ...st }, g);
+  else if (tool === "circle") el("circle", { cx: pts[0][0], cy: pts[0][1], r: len, ...st }, g);
+  else el(tool === "area" ? "polygon" : "polyline", { points: all.map((p) => p.join(",")).join(" "), ...st, ...(tool === "area" ? { fill: "rgba(0,229,255,.12)" } : {}) }, g);
+  const info = tool === "area" && all.length > 2 ? `${polyArea(all).toFixed(1)} m²` : tool === "circle" ? `r ${len.toFixed(1)} m` : `${len.toFixed(1)} m`;
+  el("text", { x: cur[0] + 8 * u, y: cur[1] - 8 * u, fill: col, "font-size": 12 * u, "font-family": "Arial, sans-serif" }, g).textContent = info;
+}
+
+function markupProps(box, m) {
+  if (!m) return;
+  const P = m.points.map((p) => CAD.proj.xy(p[0], p[1]));
+  const info = m.kind === "circle" ? `Radius ${Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]).toFixed(1)} m`
+    : m.kind === "polyline" && m.closed ? `Area ${polyArea(P).toFixed(1)} m², perimeter ${polyLen(P, true).toFixed(1)} m`
+    : m.kind === "text" ? "" : `Length ${polyLen(P, false).toFixed(1)} m`;
+  box.innerHTML = `<h3>${esc(m.kind[0].toUpperCase() + m.kind.slice(1))} ${esc(m.id)}</h3><p class="muted">Drafting: drawn on the LLD / HLD sheets and in the DXF, never counted.</p>
+    <div class="form">${["text", "leader", "dimension"].includes(m.kind) ? `<label>Text${m.kind === "dimension" ? " (empty: the measured length)" : ""}<input data-mk="text" maxlength="300" value="${esc(m.text)}"></label>` : ""}
+    <label>Text height (m)<input data-mk="size" type="number" min="0.2" max="50" step="0.1" value="${m.size}"></label>
+    <label>Colour<input data-mk="colour" type="color" value="${esc(m.colour)}"></label>
+    ${m.kind === "polyline" ? `<label class="inline"><input data-mk="closed" type="checkbox" ${m.closed ? "checked" : ""}> Closed</label>` : ""}</div>
+    ${info ? `<p>${info}</p>` : ""}`;
+  $$("[data-mk]", box).forEach((inp) => inp.addEventListener("change", () => {
+    const k = inp.dataset.mk;
+    m[k] = k === "closed" ? inp.checked : k === "size" ? Math.min(50, Math.max(0.2, +inp.value || 2)) : inp.value;
+    changed();
+  }));
+}
+
+// Copy: the selected drafting, poles, premises and equipment, shifted by base point -> second point. Copies are
+// proposed and get new IDs; equipment copied with its pole goes on the copy of the pole. Cables are not copied.
+function cadCopyApply(f) {
+  const made = [], poleMap = {};
+  const at = (lat, lon) => { const [x, y] = f(...CAD.proj.xy(lat, lon)); return CAD.proj.inverse(x, y); };
+  let cables = 0;
+  for (const s of CAD.sel) {
+    if (s.type === "markup") {
+      const m = S.D.markups.find((x) => x.id === s.id), c = { ...JSON.parse(JSON.stringify(m)), id: nextMarkupId() };
+      c.points = m.points.map((p) => at(p[0], p[1]));
+      S.D.markups.push(c); made.push({ type: "markup", id: c.id });
+    } else if (s.type === "pole" || s.type === "home") {
+      const o = find(s.type, s.id), c = { ...JSON.parse(JSON.stringify(o)), id: nextId(s.type === "pole" ? "P" : "H") };
+      [c.lat, c.lon] = at(o.lat, o.lon);
+      if (s.type === "pole") { c.status = "proposed"; poleMap[o.id] = c.id; } else { c.fat = null; c.extra_fats = []; }
+      S.D[collOf[s.type]].push(c); made.push({ type: s.type, id: c.id });
+    } else if (s.type === "cable" || s.type === "vertex") cables++;
+  }
+  for (const s of CAD.sel.filter((x) => x.type === "node")) {
+    const o = find("node", s.id), c = { ...JSON.parse(JSON.stringify(o)), id: nextId(PREFIX[o.kind], 2), status: "proposed" };
+    c.pole = poleMap[o.pole] || null;
+    const p = c.pole && find("pole", c.pole);
+    [c.lat, c.lon] = p ? [p.lat, p.lon] : at(o.lat, o.lon);
+    S.D.nodes.push(c); made.push({ type: "node", id: c.id });
+  }
+  CAD.sel = made; S.sel = made.length === 1 && made[0].type !== "markup" ? made[0] : null;
+  if (made.length) changed();
+  toast(`Copied ${made.length}${cables ? `; ${cables} cable(s) not copied (draw new routes between the copies)` : ""}`, 5000);
+}
+
+// Offset: a parallel copy of a drafting line, polyline or circle, the typed distance away, on the clicked side
+function cadOffsetApply(p) {
+  const m = S.D.markups.find((x) => x.id === CAD.sel[0]?.id), d = +$("#cadDist").value;
+  if (!m || !(d > 0)) return toast("Type the offset distance (m) first");
+  const P = m.points.map((q) => CAD.proj.xy(q[0], q[1]));
+  if (m.kind === "circle") {
+    const r = Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]), out = Math.hypot(p.x - P[0][0], p.y - P[0][1]) > r, r2 = r + (out ? d : -d);
+    if (r2 <= 0) return toast("The offset is larger than the radius");
+    return addMarkup("circle", [P[0], [P[0][0] + r2, P[0][1]]], { colour: m.colour, size: m.size });
+  }
+  const closed = m.kind === "polyline" && m.closed, n = P.length, segs = [];
+  for (let k = 0; k < (closed ? n : n - 1); k++) segs.push([P[k], P[(k + 1) % n]]);
+  let best = 0, bd = Infinity;  // the side: of the segment nearest the click
+  segs.forEach(([a, b], k) => { const dd = segDist(p, a, b); if (dd < bd) { bd = dd; best = k; } });
+  const [a0, b0] = segs[best], side = Math.sign((b0[0] - a0[0]) * (p.y - a0[1]) - (b0[1] - a0[1]) * (p.x - a0[0])) || 1;
+  const off = segs.map(([a, b]) => {
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, nx = -(b[1] - a[1]) / L * d * side, ny = (b[0] - a[0]) / L * d * side;
+    return [[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny]];
+  });
+  const meet = (s1, s2) => {  // where two offset segments' lines cross (or the end of the first when parallel)
+    const [[x1, y1], [x2, y2]] = s1, [[x3, y3], [x4, y4]] = s2, den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if (Math.abs(den) < 1e-9) return s1[1];
+    const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
+    return [x1 + t * (x2 - x1), y1 + t * (y2 - y1)];
+  };
+  const Q = closed ? off.map((s, k) => meet(off[(k - 1 + off.length) % off.length], s))
+    : [off[0][0], ...off.slice(1).map((s, k) => meet(off[k], s)), off[off.length - 1][1]];
+  addMarkup(m.kind === "line" ? "line" : "polyline", Q, { closed, colour: m.colour, size: m.size });
 }
 
 // map tiles (OpenStreetMap streets or Esri imagery) under the drawing, at the zoom of the current view
@@ -649,7 +905,8 @@ function cadTools(svg) {
   apply();
   const ids = { pole: new Set(S.D.poles.map((x) => x.id)), home: new Set(S.D.homes.map((x) => x.id)),
                 node: new Set(S.D.nodes.map((x) => x.id)), cable: new Set(S.D.cables.map((x) => x.id)) };
-  CAD.sel = (CAD.sel || []).filter((s) => s.type === "vertex" ? !!find("cable", s.cable)?.path[s.i] : ids[s.type].has(s.id));
+  ids.markup = new Set((S.D.markups || []).map((x) => x.id));
+  CAD.sel = (CAD.sel || []).filter((s) => s.type === "vertex" ? !!find("cable", s.cable)?.path[s.i] : ids[s.type]?.has(s.id));
   if (S.sel && !CAD.sel.includes(S.sel)) S.sel = CAD.sel.length === 1 && CAD.sel[0].type !== "vertex" ? CAD.sel[0] : S.sel;
   renderCadProps();
   const zoomAt = (mx, my, f) => { const v = CAD.vb; CAD.vb = [mx - (mx - v[0]) * f, my - (my - v[1]) * f, v[2] * f, v[3] * f]; apply(); };
@@ -681,15 +938,16 @@ function cadTools(svg) {
   };
   const opTransform = (q) => {
     const b = CAD.op.base;
-    if (CAD.op.kind === "move") return { f: (x, y) => [x + q.x - b.x, y + q.y - b.y], text: `${Math.hypot(q.x - b.x, q.y - b.y).toFixed(1)} m` };
+    if (CAD.op.kind === "move" || CAD.op.kind === "copy") return { f: (x, y) => [x + q.x - b.x, y + q.y - b.y], text: `${Math.hypot(q.x - b.x, q.y - b.y).toFixed(1)} m` };
     const a = CAD.op.angle ?? Math.atan2(q.y - b.y, q.x - b.x), c = Math.cos(a), s = Math.sin(a);
     return { f: (x, y) => [b.x + (x - b.x) * c - (y - b.y) * s, b.y + (x - b.x) * s + (y - b.y) * c],
              text: `${(-a * 180 / Math.PI).toFixed(1)}°` };
   };
-  const drawPreview = (q, sn) => {
+  const snapMark = (sn) => { const u = cadPx(); el("rect", { x: sn.x - 5 * u, y: sn.y - 5 * u, width: 10 * u, height: 10 * u, stroke: "#ffd60a", "stroke-width": 2, "vector-effect": "non-scaling-stroke", fill: "none" }, preview); };
+  const opPreview = (q, sn) => {
     preview.innerHTML = "";
     const u = cadPx(), col = "#00e5ff";
-    if (sn) el("rect", { x: sn.x - 5 * u, y: sn.y - 5 * u, width: 10 * u, height: 10 * u, stroke: "#ffd60a", "stroke-width": 2, "vector-effect": "non-scaling-stroke", fill: "none" }, preview);
+    if (sn) snapMark(sn);
     if (!CAD.op?.base) return;
     const b = CAD.op.base, { f, text } = opTransform(q);
     el("line", { x1: b.x, y1: b.y, x2: q.x, y2: q.y, stroke: col, "stroke-width": 1, "stroke-dasharray": "5 4", "vector-effect": "non-scaling-stroke" }, preview);
@@ -708,16 +966,19 @@ function cadTools(svg) {
   svg.addEventListener("pointerdown", (e) => {
     const p = svgPoint(svg, e);
     if (CAD.tool === "measure") { CAD.meas.push(p); drawMeas(); return; }
-    if (CAD.op) {  // move / rotate: base point, then second point
+    if (DRAW[CAD.tool]) { drawClick(p); return; }
+    if (CAD.op?.kind === "offset") { cadEnd(); cadOffsetApply(p); return; }
+    if (CAD.op) {  // move / rotate / copy: base point, then second point
       const { q, sn } = target(p);
       if (CAD.op.stage === "base") {
-        CAD.op = { ...CAD.op, stage: "second", base: q, moving: moving() };
-        msg(CAD.op.kind === "move" ? "Move: click the second point (Ortho F8, Snap F3). Esc cancels."
-          : "Rotate: click to set the angle, or type it in the angle box and press Enter. Esc cancels.");
+        CAD.op = { ...CAD.op, stage: "second", base: q, moving: CAD.op.kind === "copy" ? new Set() : moving() };
+        msg(CAD.op.kind === "rotate" ? "Rotate: click to set the angle, or type it in the angle box and press Enter. Esc cancels."
+          : `${CAD.op.kind === "move" ? "Move" : "Copy"}: click the second point (Ortho F8, Snap F3). Esc cancels.`);
         if (CAD.op.kind === "rotate") $("#cadAngle").focus();
       } else {
-        const { f } = opTransform(q);
-        cadEnd(); cadApply(f, sn);
+        const { f } = opTransform(q), kind = CAD.op.kind;
+        cadEnd();
+        if (kind === "copy") cadCopyApply(f); else cadApply(f, sn);
       }
       return;
     }
@@ -745,7 +1006,8 @@ function cadTools(svg) {
       const ll = pr.inverse(p.x, p.y);
       $("#lldCoord").textContent = `X ${p.x.toFixed(1)} m  Y ${(-p.y).toFixed(1)} m  ·  ${ll[0].toFixed(6)}, ${ll[1].toFixed(6)}`;
     }
-    if (CAD.op) { const { q, sn } = target(p); drawPreview(q, sn); if (!drag) return; }
+    if (DRAW[CAD.tool]) { const { q, sn } = drawPoint(p); drawPreview(preview, q); if (sn) snapMark(sn); return; }
+    if (CAD.op && CAD.op.kind !== "offset") { const { q, sn } = target(p); opPreview(q, sn); if (!drag) return; }
     if (!drag || drag.move) return;
     if (drag.win) {
       const x = Math.min(drag.win.x, p.x), y = Math.min(drag.win.y, p.y);
@@ -756,6 +1018,7 @@ function cadTools(svg) {
     const rc = svg.getBoundingClientRect(), k = Math.max(CAD.vb[2] / rc.width, CAD.vb[3] / rc.height);
     CAD.vb[0] = drag.vx - (e.clientX - drag.x) * k; CAD.vb[1] = drag.vy - (e.clientY - drag.y) * k; apply();
   });
+  svg.addEventListener("dblclick", (e) => { if (["pline", "leader", "area"].includes(CAD.tool)) { e.preventDefault(); drawFinish(false); } });
   svg.addEventListener("pointerup", (e) => {
     const p = svgPoint(svg, e);
     if (drag?.move) {  // drag of a selected feature: a real drag moves, a click just keeps the selection
@@ -786,12 +1049,16 @@ function cadTools(svg) {
 function setCadTool(tool) {
   CAD.tool = CAD.tool === tool ? null : tool;
   if (CAD.tool) cadEnd();
+  CAD.dpts = [];
+  const g = $("#cadPreview"); if (g) g.innerHTML = "";
   $("#lldWin").classList.toggle("active", CAD.tool === "window");
   $("#lldMeasure").classList.toggle("active", CAD.tool === "measure");
   $("#cadSelect").classList.toggle("active", CAD.tool === "select");
+  $$("[data-draw]").forEach((b) => b.classList.toggle("active", b.dataset.draw === CAD.tool));
   if (CAD.tool !== "measure" && CAD.clearMeas) CAD.clearMeas();
   $("#lldMsg").textContent = CAD.tool === "window" ? "Drag a box to zoom to it." : CAD.tool === "measure" ? "Click points to measure; distances are in metres."
-    : CAD.tool === "select" ? "Click features (Shift adds) or drag a box: everything wholly inside it is selected." : "";
+    : CAD.tool === "select" ? "Click features (Shift adds) or drag a box: everything wholly inside it is selected."
+    : DRAW[CAD.tool] ? `${DRAW[CAD.tool]} Esc stops.` : "";
 }
 
 // toolbar and keys of the drawing tab
@@ -799,6 +1066,11 @@ $("#cadSelect").onclick = () => setCadTool("select");
 $("#cadMove").onclick = () => (CAD.op?.kind === "move" ? (cadEnd(), cadMsg("")) : cadStart("move"));
 $("#cadRotate").onclick = () => (CAD.op?.kind === "rotate" ? (cadEnd(), cadMsg("")) : cadStart("rotate"));
 $("#cadDelete").onclick = () => cadDelete();
+$("#cadCopy").onclick = () => (CAD.op?.kind === "copy" ? (cadEnd(), cadMsg("")) : cadStart("copy"));
+$("#cadOffset").onclick = () => (CAD.op?.kind === "offset" ? (cadEnd(), cadMsg("")) : cadStart("offset"));
+$$("[data-draw]").forEach((b) => { b.onclick = () => setCadTool(b.dataset.draw); });
+$("#cadSheetMap").onchange = (e) => { S.D.info.sheet_map = e.target.value; changed(false);
+  toast(e.target.value === "off" ? "No map on the PDF sheets and DXF" : "The LLD / HLD PDF sheets and the DXF + map ZIP will have this map"); };
 $("#cadUndo").onclick = () => undo();
 $("#cadRedo").onclick = () => redo();
 const cadToggles = () => { $("#cadSnap").classList.toggle("active", !!PREFS.cad_snap); $("#cadOrtho").classList.toggle("active", !!PREFS.cad_ortho); };
@@ -813,8 +1085,16 @@ $("#cadAngle").addEventListener("keydown", (e) => {
 document.addEventListener("keydown", (e) => {
   if (activeTab() !== "lld" || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName) || e.ctrlKey || e.metaKey) return;
   const k = e.key;
+  if (DRAW[CAD.tool]) {  // while drawing: Enter finishes, C closes a polyline, Backspace drops the last point
+    if (k === "Enter") { e.preventDefault(); return drawFinish(false); }
+    if ((k === "c" || k === "C") && CAD.tool === "pline") return drawFinish(true);
+    if (k === "Backspace" && CAD.dpts.length) { e.preventDefault(); CAD.dpts.pop(); return cadMsg(`${DRAW[CAD.tool]} ${CAD.dpts.length} point(s).`); }
+  }
   if (k === "Delete" || k === "Backspace") { e.preventDefault(); cadDelete(); }
-  else if (k === "Escape") { if (CAD.op) cadEnd(); else if (CAD.tool) setCadTool(CAD.tool); else cadSelect([], false); cadMsg(""); }
+  else if (k === "Escape") {
+    if (CAD.op) cadEnd(); else if (CAD.tool) setCadTool(CAD.tool); else { cadSelect([], false); const o = $("#cadOverlay"); if (o) o.innerHTML = ""; }
+    cadMsg("");
+  }
   else if (k === "m" || k === "M") cadStart("move");
   else if (k === "r" || k === "R") cadStart("rotate");
   else if (k === "F3") { e.preventDefault(); cadToggle("cad_snap", "Snap"); }
@@ -836,6 +1116,7 @@ function renderLld() {
     }));
     $("#lldText").value = P.cad_text; $("#lldGrid").checked = P.cad_grid; $("#lldDark").checked = P.cad_dark;
     $("#cadMap").value = P.cad_map || "off"; cadToggles();
+    $("#cadSheetMap").value = S.D.info.sheet_map || "off";
   }
 }
 

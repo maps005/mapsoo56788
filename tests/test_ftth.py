@@ -139,4 +139,4 @@ def test_every_deliverable_builds(d):
             assert len(package.build(d, deliv, fmt, st, None)) > 200, (deliv, fmt)
     z = zipfile.ZipFile(io.BytesIO(package.build_package(d, st, None)))
     manifest = json.loads(z.read("MANIFEST.json"))
-    assert manifest["data_hash"] == d.content_hash() and len(manifest["files"]) == 24
+    assert manifest["data_hash"] == d.content_hash() and len(manifest["files"]) == 25  # LLD: DXF, PDF, DXF + map

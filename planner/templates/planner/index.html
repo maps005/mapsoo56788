@@ -129,7 +129,10 @@
   <section id="tab-lld" class="tab">
     <div class="card dark">
       <div class="row"><h3>LLD drawing (CAD view)</h3><span class="spacer"></span>
-        <a data-dl="lld.dxf"><button>Download DXF</button></a><a data-dl="lld.pdf"><button>Download PDF sheets</button></a></div>
+        <label class="muted" title="Map printed under the LLD / HLD PDF sheets and shipped with the DXF (saved with the project)">Map on PDF / DXF
+          <select id="cadSheetMap"><option value="off">Off</option><option value="streets">Streets</option><option value="satellite">Satellite</option></select></label>
+        <a data-dl="lld.dxf"><button>Download DXF</button></a><a data-dl="lld.zip"><button title="The DXF with the map image next to it (keep both in one folder)">DXF + map (ZIP)</button></a>
+        <a data-dl="lld.pdf"><button>Download PDF sheets</button></a></div>
       <div class="row cadbar">
         <button id="lldIn" title="Zoom in">+</button><button id="lldOut" title="Zoom out">&minus;</button>
         <button id="lldFit" title="Zoom extents">Extents</button>
@@ -154,6 +157,28 @@
         <button id="lldSvg" title="Save the drawing as SVG">SVG</button><button id="lldPng" title="Save as PNG image">PNG</button>
         <button id="lldPrint" title="Print the drawing">Print</button>
         <span class="spacer"></span><span id="lldCoord" class="muted coordtxt">-</span>
+      </div>
+      <div class="row cadbar">
+        <span class="muted">Draw</span>
+        <button data-draw="line" title="Line: two points">Line</button>
+        <button data-draw="pline" title="Polyline: click points; Enter or double-click finishes, C closes">Polyline</button>
+        <button data-draw="rect" title="Rectangle: two opposite corners">Rect</button>
+        <button data-draw="circle" title="Circle: centre, then a point on the edge">Circle</button>
+        <button data-draw="text" title="Text: type the note in the note box, then click where it goes">Text</button>
+        <button data-draw="leader" title="Leader: arrow point, then points; Enter finishes; text from the note box">Leader</button>
+        <button data-draw="dim" title="Dimension: the two points to measure">Dim</button>
+        <input id="cadNote" maxlength="300" placeholder="note text" title="Text for Text and Leader">
+        <label class="muted" title="Text height on the ground">H <input id="cadSize" type="number" min="0.2" max="50" step="0.1" value="2"> m</label>
+        <input id="cadColour" type="color" value="#00e5ff" title="Colour of new drafting">
+        <span class="sep"></span>
+        <span class="muted">Inquiry</span>
+        <button data-draw="area" title="Area and perimeter: click the corners; Enter finishes">Area</button>
+        <button data-draw="angle" title="Angle: arm, vertex, arm">Angle</button>
+        <button data-draw="id" title="Coordinates of a point (copied to the clipboard)">ID point</button>
+        <span class="sep"></span>
+        <button id="cadCopy" title="Copy the selection: base point, then second point">Copy</button>
+        <button id="cadOffset" title="Offset a drafting line, polyline or circle: distance, then side">Offset</button>
+        <input id="cadDist" type="number" min="0" step="any" placeholder="offset m" title="Offset distance in metres" hidden>
       </div>
       <div class="cadwrap"><div id="lldBig" class="lldbox big"></div><aside id="cadProps" class="cadprops" hidden></aside></div>
       <div id="lldMsg" class="muted"></div>

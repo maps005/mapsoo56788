@@ -11,6 +11,7 @@ from reportlab.lib.pagesizes import A3, A4, landscape
 from reportlab.lib.enums import TA_JUSTIFY, TA_RIGHT
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import (BaseDocTemplate, CondPageBreak, Frame, HRFlowable, Image, KeepTogether,
@@ -23,6 +24,7 @@ from ..geo import LocalProjection, haversine, valid_coord
 from ..model import Design
 from . import report
 from .common import KIND_COLOURS, NODE_LABEL, Stamp, logo_size, markup, photo_path
+from . import basemap
 from .labels import LabelPlacer, route_anchors, stacked
 
 C = lambda h: colors.HexColor(h)  # noqa: E731
@@ -74,6 +76,80 @@ class _Labels(LabelPlacer):
         cv.drawString(left, bottom + size * 0.22, text)  # baseline above the descender
 
 
+def _sheet_basemap(cv, style, proj, x0, y0, w, h, cx, cy, scale, light):
+    """Map tiles filling the sheet's map frame, faded so the drawing stays readable, with their attribution."""
+    south, west = proj.latlon(cx - w / 2 / scale, cy - h / 2 / scale)
+    north, east = proj.latlon(cx + w / 2 / scale, cy + h / 2 / scale)
+    img = basemap.image(style, south, west, north, east, min(2400, max(64, round(w / 72 * 120))))
+    if img is None:
+        cv.setFillColor(colors.grey)
+        cv.setFont("Helvetica", 6)
+        cv.drawString(x0 + 4, y0 + 4, "Map not available (tiles could not be fetched)")
+        return
+    img = basemap.faded(img, 0.35 if light else 0.0)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=82)
+    buf.seek(0)
+    cv.drawImage(ImageReader(buf), x0, y0, w, h)
+    if not light:  # dark sheets: darken instead, so light lines and labels stand out
+        cv.setFillColor(colors.black)
+        cv.setFillAlpha(0.45)
+        cv.rect(x0, y0, w, h, stroke=0, fill=1)
+        cv.setFillAlpha(1)
+    cv.setFillColor(colors.HexColor("#333333") if light else colors.white)
+    cv.setFont("Helvetica", 5)
+    cv.drawString(x0 + 3, y0 + 3, basemap.attribution(style))
+
+
+def _draw_markups(cv, d: Design, T, scale, labels):
+    """The drafting layer: lines, shapes, notes, leaders and dimensions, in their own colours."""
+    for m in d.markups:
+        P = [T(la, lo) for la, lo in m.points]
+        cv.setStrokeColor(C(m.colour))
+        cv.setFillColor(C(m.colour))
+        cv.setLineWidth(0.9)
+        size = max(4.0, min(m.size * scale, 24.0))
+        if m.kind in ("line", "polyline", "leader"):
+            pp = cv.beginPath()
+            for i, xy in enumerate(P):
+                (pp.moveTo if i == 0 else pp.lineTo)(*xy)
+            if m.kind == "polyline" and m.closed:
+                pp.close()
+            cv.drawPath(pp, stroke=1, fill=0)
+            if m.kind == "leader" and len(P) >= 2:  # arrowhead at the first point
+                (ax, ay), (bx, by) = P[0], P[1]
+                a = math.atan2(by - ay, bx - ax)
+                for s in (0.4, -0.4):
+                    cv.line(ax, ay, ax + 6 * math.cos(a + s), ay + 6 * math.sin(a + s))
+        elif m.kind == "circle":
+            (ax, ay), (bx, by) = P
+            cv.circle(ax, ay, math.hypot(bx - ax, by - ay), stroke=1, fill=0)
+        elif m.kind == "dimension":
+            (ax, ay), (bx, by) = P
+            a, off = math.atan2(by - ay, bx - ax), 6.0
+            nx, ny = -math.sin(a) * off, math.cos(a) * off  # dimension line parallel to the measured points
+            cv.line(ax, ay, ax + nx * 1.3, ay + ny * 1.3)
+            cv.line(bx, by, bx + nx * 1.3, by + ny * 1.3)
+            cv.line(ax + nx, ay + ny, bx + nx, by + ny)
+            tx, ty = 2.5 * math.cos(a + 0.8), 2.5 * math.sin(a + 0.8)  # architectural ticks at both ends
+            for px, py in ((ax + nx, ay + ny), (bx + nx, by + ny)):
+                cv.line(px - tx, py - ty, px + tx, py + ty)
+            length = haversine(*m.points[0], *m.points[1])
+            text = m.text or f"{length:.1f} m"
+            cv.saveState()
+            cv.translate((ax + bx) / 2 + nx * 1.6, (ay + by) / 2 + ny * 1.6)
+            cv.rotate(math.degrees(a if -math.pi / 2 < a <= math.pi / 2 else a + math.pi))
+            cv.setFont("Helvetica", size)
+            cv.drawCentredString(0, 0, text)
+            cv.restoreState()
+            continue
+        if m.text and m.kind in ("text", "leader"):
+            x, y = P[-1]
+            cv.setFont("Helvetica", size)
+            cv.drawString(x + (2 if m.kind == "leader" else 0), y, m.text)
+            labels.block(x + stringWidth(m.text, "Helvetica", size) / 2, y + size / 2, max(size, stringWidth(m.text, "Helvetica", size) / 2))
+
+
 def _draw_map(cv, d: Design, x0, y0, w, h, detail: bool, window=None, light: bool = False):
     """Draw the design into a box. window = (proj, minx, miny, maxx, maxy) in local metres shows one sheet tile."""
     pts = _map_points(d)
@@ -102,6 +178,8 @@ def _draw_map(cv, d: Design, x0, y0, w, h, detail: bool, window=None, light: boo
     cv.setFillColor(colors.white if light else C("#10161d"))
     cv.rect(x0, y0, w, h, stroke=0, fill=1)
     label = colors.black if light else colors.white
+    if d.info.sheet_map != "off":  # the project's map under the sheet (Settings: map on PDF / DXF)
+        _sheet_basemap(cv, d.info.sheet_map, proj, x0, y0, w, h, cx, cy, scale, light)
 
     for x in d.ducts:  # trunking / conduit
         if len(x.path) >= 2:
@@ -153,6 +231,7 @@ def _draw_map(cv, d: Design, x0, y0, w, h, detail: bool, window=None, light: boo
     labels = _Labels(x0, y0, w, h)
     for _, pts_ in lines:
         labels.block_line(pts_, 4)
+    _draw_markups(cv, d, T, scale, labels)
     home_xy, pole_xy, node_xy = [], [], []
     for hm in d.homes:
         if valid_coord(hm.lat, hm.lon):

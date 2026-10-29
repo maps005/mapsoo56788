@@ -45,7 +45,8 @@ def _csv_zip(d: Design, st: Stamp, _p=None) -> bytes:
 DELIVERABLES: dict[str, dict[str, Builder]] = {
     "hld": {"kml": lambda d, s, p: kml.build_kml(d, s).encode(), "kmz": lambda d, s, p: kml.build_kmz(d, s),
             "pdf": lambda d, s, p: pdf.map_pdf(d, s, "HLD DESIGN", detail=False)},
-    "lld": {"dxf": lambda d, s, p: dxf.build_dxf(d, s), "pdf": lambda d, s, p: lld.build_lld_pdf(d, s)},
+    "lld": {"dxf": lambda d, s, p: dxf.build_dxf(d, s), "pdf": lambda d, s, p: lld.build_lld_pdf(d, s),
+            "zip": lambda d, s, p: dxf.build_dxf_zip(d, s)},  # DXF + map image
     "pole_summary": {"xlsx": lambda d, s, p: excel.pole_summary_xlsx(d, s), "pdf": lambda d, s, p: pdf.pole_summary_pdf(d, s)},
     "bom": {"xlsx": lambda d, s, p: excel.bom_xlsx(d, s), "pdf": lambda d, s, p: pdf.bom_pdf(d, s)},
     "boq": {"xlsx": lambda d, s, p: excel.vsquared_boq_xlsx(d, s), "pdf": lambda d, s, p: pdf.boq_pdf(d, s)},
@@ -67,8 +68,8 @@ TITLES = {"hld": "HLD", "lld": "LLD", "pole_summary": "Pole Summary", "bom": "BO
 _BASE = ["info.name", "info.area", "info.client", "info.prepared_by", "info.design_status"]
 _NETWORK = ["poles", "homes", "nodes", "cables", "splitters"]
 DEPENDS = {
-    "hld": _BASE + _NETWORK + ["info.boundary", "rules"],
-    "lld": _BASE + _NETWORK + ["info.boundary", "rules"],
+    "hld": _BASE + _NETWORK + ["info.boundary", "rules", "markups", "info.sheet_map"],
+    "lld": _BASE + _NETWORK + ["info.boundary", "rules", "markups", "info.sheet_map"],
     "pole_summary": _BASE + ["poles", "nodes", "cables", "rules"],
     "bom": _BASE + _NETWORK + ["rules", "materials", "adjustments"],
     "boq": _BASE + _NETWORK + ["rules", "materials", "adjustments", "info.currency"],

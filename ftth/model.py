@@ -271,6 +271,45 @@ class Photo(BaseModel):
         return v
 
 
+MarkupKind = Literal["line", "polyline", "circle", "text", "leader", "dimension"]
+_POINTS = {"line": (2, 2), "polyline": (2, 500), "circle": (2, 2), "text": (1, 1), "leader": (2, 50), "dimension": (2, 2)}
+
+
+class Markup(BaseModel):
+    """Drafting on the drawing (lines, shapes, notes, leaders, dimensions). Not part of the network: it is never
+    counted in quantities or checks, only drawn on the LLD / HLD sheets and in the DXF.
+
+    points are [lat, lon]: a line or dimension has its two ends, a polyline or leader its vertices (a leader's
+    text sits at its last point), a circle its centre and a point on its edge, a text its insertion point."""
+    id: str = Field(max_length=40)
+    kind: MarkupKind
+    points: list[list[float]]
+    closed: bool = False                          # polyline: closed shape (rectangles are closed polylines)
+    text: str = Field(default="", max_length=300)
+    size: float = Field(default=2.0, gt=0, le=50)  # text height, metres on the ground
+    colour: str = "#00e5ff"
+
+    @field_validator("colour")
+    @classmethod
+    def _hex(cls, v: str) -> str:
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", v):
+            raise ValueError("colour must be #rrggbb")
+        return v
+
+    @field_validator("points")
+    @classmethod
+    def _coords(cls, v: list[list[float]]) -> list[list[float]]:
+        for p in v:
+            if len(p) != 2 or not (-90 <= p[0] <= 90 and -180 <= p[1] <= 180):
+                raise ValueError("each markup point must be [lat, lon]")
+        return v
+
+    def model_post_init(self, _ctx) -> None:
+        lo, hi = _POINTS[self.kind]
+        if not lo <= len(self.points) <= hi:
+            raise ValueError(f"a {self.kind} markup needs {lo}{'' if lo == hi else f' to {hi}'} point(s)")
+
+
 class ProjectInfo(BaseModel):
     name: str = "New FTTH project"
     area: str = ""
@@ -309,6 +348,7 @@ class ProjectInfo(BaseModel):
     survey_approved_at: str = ""
     survey_fingerprint: str = ""
     design_status: Literal["draft", "in_review", "approved"] = "draft"
+    sheet_map: Literal["off", "streets", "satellite"] = "off"  # map under the LLD / HLD PDF sheets and in the DXF
 
 
 class Design(BaseModel):
@@ -324,6 +364,7 @@ class Design(BaseModel):
     adjustments: list[Adjustment] = Field(default_factory=list)
     rules: Rules = Field(default_factory=Rules)
     photos: list[Photo] = Field(default_factory=list)
+    markups: list[Markup] = Field(default_factory=list, max_length=5000)
 
     # ---- lookups -------------------------------------------------------
     _index: dict = PrivateAttr(default_factory=dict)

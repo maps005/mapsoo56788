@@ -38,6 +38,10 @@ class LocalProjection:
     def xy(self, lat: float, lon: float) -> tuple[float, float]:
         return (lon - self.lon0) * self.kx, (lat - self.lat0) * self.ky
 
+    def latlon(self, x: float, y: float) -> tuple[float, float]:
+        """Inverse of xy."""
+        return self.lat0 + y / self.ky, self.lon0 + x / self.kx
+
     @classmethod
     def for_points(cls, pts: list[tuple[float, float]]) -> "LocalProjection":
         if not pts:
