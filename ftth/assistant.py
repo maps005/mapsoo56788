@@ -13,7 +13,7 @@ import urllib.request
 from collections import Counter
 from dataclasses import dataclass
 
-from . import calc, validate
+from . import calc, sectors, validate
 from .model import Design
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -33,10 +33,19 @@ SYSTEM = (
 
 def _system(d: Design) -> str:
     """The instructions, in the project's sector (the design model is shared: equipment kinds are renamed)."""
-    from . import sectors
     p = sectors.get(d.info.sector)
     if p["fibre_tools"]:
         return SYSTEM
+    if p.get("construction"):
+        return ("You are ArchPlanner's assistant for building design and construction in Kenya. You help planners "
+                "with the client brief, the building layout (floors, walls, doors, windows, stairs, roof, structure), "
+                "quantities and the BOQ, the plans and elevations, and QA before approval. Use the project summary as "
+                "the facts about the open project; say so when something is not in it. Quantities are estimates from "
+                "the model and typical rules, not a structural design: say when an engineer must check something "
+                "(foundations, columns, slabs, fire escape). Point to the app's tools (Building 3D: Auto design, Wall, "
+                "Door, Window, Column, Stair, + Floor, Roof; Site plan: Place building, Boundary; Materials & rules; "
+                "BOM · BOQ; Plans & elevations PDF; Generate deliverables) when they solve the question. Be concise, "
+                "use short lists and give numbers with units. You cannot change the design yourself.")
     names = "; ".join(f"{k} = {v}" for k, v in p["kinds"].items())
     return (f"You are ArchPlanner's assistant for {p['network']} planning ({p['label']}) in Kenya. You help planners "
             f"with survey data, network layout and detailed design, {p['line'].lower()} routes and sizes, materials, "
@@ -77,6 +86,27 @@ def project_context(d: Design) -> str:
     photos = [p for p in d.photos if p.analysis]
     found = Counter(o.get("label") for p in photos for o in p.analysis.get("objects", []) if o.get("label"))
     photo_issues = [i for p in photos for i in p.analysis.get("issues", [])][:15]
+    if sectors.get(d.info.sector).get("construction"):  # a building: its figures, not network counts
+        b = d.building
+        ctx = {
+            "project": {k: getattr(d.info, k) for k in ("name", "area", "client", "region", "currency",
+                                                        "design_status")},
+            "building": s["building"],
+            "plot_boundary_drawn": bool(d.info.boundary),
+            "levels": [{"name": lv.name, "elevation_m": lv.elevation, "height_m": lv.height} for lv in b.levels][:60]
+                      if b else [],
+            "spec": b.spec.model_dump() if b else None,
+            "boq_total": s["boq_total"],
+            "top_boq_lines": [{"item": ln.description[:60], "qty": round(ln.qty, 1), "unit": ln.unit, "total": ln.total}
+                              for ln in top],
+            "quantities": [{"item": ln.description[:60], "qty": round(ln.qty, 1), "unit": ln.unit}
+                           for ln in lines][:40],
+            "qa": {"errors": sev.get("error", 0), "warnings": sev.get("warning", 0),
+                   "by_code": {f"{k[0]}:{k[1]}": n for k, n in codes.most_common(15)},
+                   "first_errors": [i["message"][:160] for i in issues if i["severity"] == "error"][:10]},
+            "photo_ai": {"photos": len(d.photos), "analysed": len(photos), "issues_seen": photo_issues},
+        }
+        return json.dumps(ctx, default=str, separators=(",", ":"))
     ctx = {
         "project": {k: getattr(d.info, k) for k in ("name", "area", "client", "region", "zone", "cluster", "currency",
                                                     "design_status", "survey_status", "design_style",

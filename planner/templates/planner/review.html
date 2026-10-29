@@ -21,10 +21,17 @@
     <span class="badge {{ k.survey }}">Survey {{ k.survey }}</span>
   </div>
   <div class="kpis">
-    <div><b>{{ k.s.homepasses|intcomma }}</b><span>homepasses</span></div>
-    <div><b>{{ k.s.nodes.FAT }}</b><span>FATs</span></div>
-    <div><b>{{ k.s.poles_new }}</b><span>new poles</span></div>
+    {% if k.sec.construction %}{% with b=k.s.building %}
+    <div><b>{{ b.floors|default:0 }}</b><span>floors</span></div>
+    <div><b>{{ b.gross_floor_m2|default:0|floatformat:0|intcomma }} m²</b><span>gross floor area</span></div>
+    <div><b>{{ b.height_m|default:0|floatformat:1 }} m</b><span>height</span></div>
+    <div><b>{{ b.doors|default:0|intcomma }} / {{ b.windows|default:0|intcomma }}</b><span>doors / windows</span></div>
+    {% endwith %}{% else %}
+    <div><b>{{ k.s.homepasses|intcomma }}</b><span>{{ k.sec.unit }}</span></div>
+    <div><b>{{ k.s.nodes.FAT }}</b><span>{% if k.sec.fibre_tools %}FATs{% else %}{{ k.sec.kinds.FAT }}{% endif %}</span></div>
+    <div><b>{{ k.s.poles_new }}</b><span>new {{ k.sec.support|lower }}s</span></div>
     {% for key, m in k.s.cable_m.items %}<div><b>{{ m|floatformat:0|intcomma }} m</b><span>{{ key }}</span></div>{% endfor %}
+    {% endif %}
     <div><b>{{ k.s.currency }} {{ k.s.boq_total|floatformat:0|intcomma }}</b><span>BOQ</span></div>
     <div class="{% if k.counts.errors %}bad{% endif %}"><b>{{ k.counts.errors }} / {{ k.counts.warnings }}</b><span>errors / warnings</span></div>
   </div>
@@ -47,7 +54,7 @@
       </div>
       <form method="post" class="cform">{% csrf_token %}<input type="hidden" name="project" value="{{ k.p.id }}">
         <textarea name="text" rows="2" placeholder="Leave a comment for the planner..." required></textarea>
-        <div class="row"><input name="ref" placeholder="Feature ID (optional, e.g. KPC 06, FAT-03)"><button name="action" value="comment">Comment</button></div>
+        <div class="row"><input name="ref" placeholder="{% if k.sec.construction %}Wall, door or window ID (optional, e.g. W012, O034){% else %}Feature ID (optional, e.g. KPC 06, FAT-03){% endif %}"><button name="action" value="comment">Comment</button></div>
       </form>
     </div>
     <div class="ractions">

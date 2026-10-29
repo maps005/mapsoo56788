@@ -14,7 +14,7 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 
-from ftth import calc, validate
+from ftth import calc, sectors, validate
 
 from .models import Comment, Company, Membership, Profile, Project
 from .views import ApiError, active_company, record_revision
@@ -130,6 +130,7 @@ def review_page(request):
         s, counts = calc.summary(d), validate.counts(validate.validate(d))
         last = p.revisions.select_related("author").first()
         cards.append({"p": p, "design": ds, "design_label": STATUS_LABEL.get(ds, ds), "survey": ss, "s": s,
+                      "sec": sectors.get(d.info.sector),  # the figures in the project's sector words
                       "counts": counts, "last": last, "can_approve": p.can_approve(u), "can_edit": p.can_edit(u),
                       "comments": list(p.comments.select_related("author", "resolved_by")[:30]), "open": open_n,
                       "unpriced": [l.code for l in calc.bom(d) if l.rate is None]})

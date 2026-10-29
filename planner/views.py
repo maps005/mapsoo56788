@@ -31,7 +31,7 @@ from ftth import calc, importers, sectors, splicing, standards, validate
 from ftth.exporters import package
 from ftth.exporters.common import stamp
 from ftth.model import DEFAULT_MATERIALS, Design, Photo, ProjectInfo
-from ftth.sample import sample_design
+from ftth.sample import sample_building, sample_design
 
 from .models import Comment, Company, ExportRecord, Membership, Profile, Project, Revision, role_in
 
@@ -389,15 +389,16 @@ def projects(request):
                              for p in Project.objects.visible_to(request.user).select_related("owner", "company")],
                             safe=False)
     body = _body(request)
+    company = active_company(request.user)
+    if company is not None and Membership.RANK[role_in(request.user, company)] < Membership.RANK["planner"]:
+        company = None  # viewers create personal projects only
+    build = company is not None and sectors.SECTORS.get(company.sector, {}).get("construction")
     if body.get("sample") is True:
-        d = sample_design()
+        d = sample_building() if build else sample_design()  # a construction company tries a building
     else:
         d = Design(info=ProjectInfo(name=_text(body, "name", 200) or "New FTTH project"),
                    materials=[m.model_copy() for m in DEFAULT_MATERIALS])
     d.info.prepared_by = d.info.prepared_by or request.user.get_full_name() or request.user.get_username()
-    company = active_company(request.user)
-    if company is not None and Membership.RANK[role_in(request.user, company)] < Membership.RANK["planner"]:
-        company = None  # viewers create personal projects only
     if company is not None:
         d.info.company = d.info.company or company.name
         d.info.currency = company.currency or d.info.currency

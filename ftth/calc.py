@@ -451,4 +451,12 @@ def summary(d: Design) -> dict:
         "cable_m": {k: round(v, 1) for k, v in sorted(by_kind.items())},
         "boq_total": boq_total(lines), "currency": d.info.currency,
         "fat_load": dict(fat_load(d)),
+        "building": _building_summary(d),  # construction: floors, floor area... (None without a building)
     }
+
+
+def _building_summary(d: Design) -> dict | None:
+    if d.building is None:
+        return None
+    from . import building
+    return building.summary(d.building)

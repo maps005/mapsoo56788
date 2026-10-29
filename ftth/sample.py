@@ -59,3 +59,17 @@ def sample_design() -> Design:
         d.homes.append(Home(id=f"H{i:03d}", lat=la, lon=lo, units=u, kind="mdu" if u > 1 else "home",
                             name=f"Plot {100 + i}"))
     return d
+
+
+def sample_building() -> Design:
+    """A construction demo: a two-storey house placed on its plot (Nairobi), with the plot boundary drawn."""
+    from . import building as B, sectors
+    d = Design(info=ProjectInfo(
+        name="Sample house (demo)", area="Demo plot, Nairobi", client="Demo client", prepared_by="Planner",
+        introduction="Design and quantities for a two-storey family house on a 24 x 21 m plot.",
+        proposed_solution="Blockwork walls on strip footings, concrete floor slab, hip roof in iron sheets."))
+    sectors.apply(d, "construction")
+    d.building = B.generate(B.AutoParams(width=12, depth=9, floors=2, rooms_x=3, rooms_y=2, roof="hip"))
+    d.building.origin = [-1.3130, 36.8230]
+    d.info.boundary = [list(B.to_latlon(d.building, x, y)) for x, y in ((-6, -6), (18, -6), (18, 15), (-6, 15))]
+    return d

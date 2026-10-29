@@ -14,6 +14,13 @@
     "What did the photo AI find on the survey photos?",
     "Which BOQ lines cost the most, and can they be reduced?",
   ];
+  const SUGGEST_BUILDING = [  // construction projects
+    "Summarise this building and what is left before approval",
+    "Explain the QA errors and how to fix them",
+    "Check the floor-to-floor heights, stairs and headroom",
+    "Which BOQ lines cost the most, and can they be reduced?",
+    "What should a structural engineer check in this design?",
+  ];
 
   // answers are shown as escaped text with a small markdown subset: **bold**, *italic*, `code`, headings,
   // bullet lines and |tables| (tables can be collapsed, and long ones show their first rows until expanded)
@@ -86,8 +93,8 @@
     }
     if (!msgs.length) {
       log.innerHTML = `<div class="aiempty"><b>Ask about this project</b>
-        <p>Answers use this project's survey, design, BOQ and QA figures${status.photo_ai ? " and the trained photo model's findings" : ""}.</p>
-        <div class="aisugg">${SUGGEST.map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div></div>`;
+        <p>Answers use this project's ${S.st?.sector?.construction ? "building" : "survey, design"}, BOQ and QA figures${status.photo_ai ? " and the trained photo model's findings" : ""}.</p>
+        <div class="aisugg">${(S.st?.sector?.construction ? SUGGEST_BUILDING : SUGGEST).map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div></div>`;
       log.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => ask(b.dataset.q)));
       return;
     }

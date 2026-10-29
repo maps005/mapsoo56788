@@ -118,3 +118,31 @@ def test_construction_company_projects_design_buildings_through_the_api():
     assert c.post(f"/api/projects/{st['id']}/building/generate", {"floors": 0},
                   content_type="application/json").status_code == 400
     assert c.get(f"/api/projects/{st['id']}/export/plans.pdf").status_code == 200
+
+
+@pytest.mark.django_db
+def test_a_construction_company_gets_a_building_planner():
+    from ftth import assistant
+    u = User.objects.create_user("builder2", password="pw-12345-long")
+    co = Company.objects.create(name="Build Co", sector="construction")
+    Membership.objects.create(user=u, company=co, role="owner")
+    Profile.objects.update_or_create(user=u, defaults={"active_company": co})
+    c = Client()
+    c.force_login(u)
+    # the sample is a building on its plot, not a fibre network
+    st = c.post("/api/projects", {"sample": True}, content_type="application/json").json()
+    d = st["design"]
+    assert st["sector"]["construction"] and d["building"]["walls"] and d["info"]["boundary"] and not d["cables"]
+    assert st["summary"]["building"]["floors"] == 2 and st["counts"]["errors"] == 0
+    # the review page shows floors and floor area, not homepasses and FATs
+    p = Design.model_validate(d)
+    p.info.design_status = "in_review"
+    st = c.put(f"/api/projects/{st['id']}", p.model_dump(mode="json"), content_type="application/json",
+               HTTP_X_BASE_HASH=st["hash"]).json()
+    page = c.get("/review/?show=all").content.decode()
+    assert "gross floor area" in page and "doors / windows" in page and "homepasses" not in page
+    # the assistant is told it is a building and given the building's figures
+    p = Design.model_validate(st["design"])
+    assert "building design" in assistant._system(p) and "FTTH" not in assistant._system(p)
+    ctx = assistant.project_context(p)
+    assert '"floors":2' in ctx and "homepasses" not in ctx

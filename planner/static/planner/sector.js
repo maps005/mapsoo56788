@@ -30,6 +30,10 @@ function applySector() {
   relabel("[data-tab='map']", fibre ? null : build ? "Site plan" : "Network map");
   relabel("[data-tab='lld']", fibre ? null : "Detailed drawing");
   relabel("[data-tab='schedules']", fibre ? null : build ? "BOM · BOQ" : `${t.support} summary · BOM · BOQ`);
+  relabel("[data-tab='report']", build ? "Building report" : null);
+  relabel("#ovReportTitle", build ? "BUILDING REPORT" : null);
+  let n = 0;  // overview panels numbered as shown (construction has no HLD, LLD, pole or splicing panels)
+  $$("#tab-overview .panel > h2 > span:first-child").forEach((s) => { if (!s.closest("[hidden]")) s.textContent = `${++n}.`; });
   relabel("[data-mode='pole']", fibre ? null : `+ ${t.support}`);
   relabel("#ovPolesTitle", fibre ? null : `${t.support} schedule`.toUpperCase());
   relabel("#ovPolesAll", fibre ? null : `All ${t.support.toLowerCase()}s`);

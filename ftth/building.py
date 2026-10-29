@@ -172,6 +172,17 @@ def footprint(b: Building) -> list[Pt]:
     return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
 
 
+def summary(b: Building) -> dict:
+    """Headline figures: floors, gross floor area, height, walls, doors, windows, roof, placed on the site plan."""
+    return {"floors": len(b.levels),
+            "gross_floor_m2": round(sum(area(s.outline) for s in b.slabs if s.level < len(b.levels)), 1),
+            "height_m": round(max((lv.elevation + lv.height for lv in b.levels), default=0.0), 2),
+            "walls": len(b.walls), "doors": sum(o.kind == "door" for o in b.openings),
+            "windows": sum(o.kind == "window" for o in b.openings), "stairs": len(b.stairs), "columns": len(b.columns),
+            "roof": ", ".join(r.kind if r.kind == "flat" else f"{r.kind} {r.pitch:g}°" for r in b.roofs) or "none",
+            "placed": b.origin is not None}
+
+
 def _seg_dist(p, a, b) -> float:
     dx, dy = b[0] - a[0], b[1] - a[1]
     L = dx * dx + dy * dy
