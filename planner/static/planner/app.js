@@ -73,6 +73,7 @@ function changed(rerenderMap = true) {
   if (rerenderMap) renderMap();
   renderProps();
   if (activeTab() === "lld" && typeof renderLld === "function") renderLld();  // edits made in the drawing tab
+  if (activeTab() === "building" && typeof renderBuilding === "function") renderBuilding(false);
 }
 
 async function save() {
@@ -316,8 +317,9 @@ function renderMap() {
     pts.forEach((p) => L.circleMarker(p, { radius: 4, color: "#00b7ff", interactive: false }).addTo(G.draw));
   }
   drawOverlays();
+  const site = typeof buildingOnMap === "function" ? buildingOnMap(G.boundary) : [];  // construction: the building's footprint
   if (!S.fitted && map.getContainer().offsetWidth) {  // fit once the map is visible
-    const pts = [...D.poles, ...D.homes, ...D.nodes].filter(okc).map((x) => [x.lat, x.lon]).concat(D.info.boundary);
+    const pts = [...D.poles, ...D.homes, ...D.nodes].filter(okc).map((x) => [x.lat, x.lon]).concat(D.info.boundary, site);
     if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 18 });
     S.fitted = true;
   }
@@ -387,6 +389,7 @@ function mapClick(e) {
     S.draw.push({ lat, lon, pole: null, node: null, crossing: false }); return renderMap();
   }
   if (S.mode === "extend") { D.info.extend_to.push([lat, lon]); return changed(); }
+  if (S.mode === "place" && typeof placeBuilding === "function") return placeBuilding(lat, lon);
   S.sel = null; renderMap(); renderProps();
 }
 
@@ -578,6 +581,14 @@ function setField(type, obj, f, raw) {
 function summaryHtml() {
   const s = S.st?.summary; if (!s) return "";
   const t = S.st?.sector, fibre = !t || t.fibre_tools;
+  if (t?.construction) {  // the building, not a network
+    const b = S.D.building;
+    return `<h4>Project summary</h4><table>
+      <tr><td>Floors</td><td class="num">${b?.levels?.length || 0}</td></tr>
+      <tr><td>Walls / doors & windows</td><td class="num">${b?.walls?.length || 0} / ${b?.openings?.length || 0}</td></tr>
+      <tr><td>Placed on the site plan</td><td class="num">${b?.origin ? "yes" : "no"}</td></tr>
+      <tr><td><b>BOQ total</b></td><td class="num"><b>${esc(s.currency)} ${fmt(s.boq_total, 2)}</b></td></tr></table>`;
+  }
   return `<h4>Project summary</h4><table>
     <tr><td>${fibre ? "Poles" : esc(t.support) + "s"}</td><td class="num">${s.poles} (${s.poles_new} new)</td></tr>
     <tr><td>Premises / ${fibre ? "homepasses" : esc(t.unit)}</td><td class="num">${s.homes} / ${s.homepasses}</td></tr>
@@ -624,6 +635,7 @@ async function renderActiveTab(full) {
   if (t === "overview") await renderOverview();
   if (t === "settings" && full) renderSettings();
   if (t === "lld" && full) renderLld();
+  if (t === "building" && typeof renderBuilding === "function") renderBuilding(full);
   if (t === "splicing") { await renderSplicing(); await renderSplicingSchematic(); }
   if (t === "schedules") await renderSchedules();
   if (t === "report" && full) renderReport();

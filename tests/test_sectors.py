@@ -87,6 +87,8 @@ def test_company_page_and_admin_set_the_sector():
 
 FIBRE_HARDWARE = ("J-HOOK", "UPB", "TENSION-CLAMP", "FOC-", "SPL-1X", "ENC-SPLICE", "FAT-16P", "STEEL-STRAP")
 BURIED = [k for k, v in sectors.SECTORS.items() if v["install"] == "underground"]
+# network sectors other than fibre (construction designs buildings: tests/test_construction.py)
+NETWORKS = [k for k, v in sectors.SECTORS.items() if k != "fibre" and not v.get("construction")]
 
 
 def sector_design(key):
@@ -97,7 +99,7 @@ def sector_design(key):
     return d
 
 
-@pytest.mark.parametrize("key", [k for k in sectors.SECTORS if k != "fibre"])
+@pytest.mark.parametrize("key", NETWORKS)
 def test_sector_boq_has_only_the_sectors_items_and_sizes(key):
     d = sector_design(key)
     p = sectors.SECTORS[key]
@@ -117,7 +119,7 @@ def test_sector_boq_has_only_the_sectors_items_and_sizes(key):
     assert " FAT" not in msgs and "Home H" not in msgs
 
 
-@pytest.mark.parametrize("key", [k for k in sectors.SECTORS if k != "fibre"])
+@pytest.mark.parametrize("key", NETWORKS)
 def test_every_deliverable_builds_in_the_sectors_words(key, tmp_path):
     d = sector_design(key)
     p = sectors.SECTORS[key]

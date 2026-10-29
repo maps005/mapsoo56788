@@ -76,8 +76,9 @@
   <button data-tab="overview" class="active">Overview</button>
   <button data-tab="data">Survey &amp; validation</button>
   <button data-tab="map">HLD map</button>
+  <button data-tab="building" data-construction-only hidden>Building 3D</button>
   <button data-tab="materials">Materials &amp; rules</button>
-  <button data-tab="lld">LLD drawing</button>
+  <button data-tab="lld" data-network-only>LLD drawing</button>
   <button data-tab="schedules">Pole summary · BOM · BOQ</button>
   <button data-tab="splicing">Splicing</button>
   <button data-tab="report">Survey report</button>
@@ -88,7 +89,12 @@
 <main>
   <!-- Overview: the whole design on one page, every panel drawn from the same project data -->
   <section id="tab-overview" class="tab active">
-    <div class="ovgrid">
+    <div class="ovgrid" data-construction-only hidden>
+      <div class="panel"><h2><span>1.</span> BUILDING <small>(3D design)</small></h2>
+        <div id="ovBuilding" class="ovtable"></div>
+        <div class="pfoot"><a data-dl="plans.pdf">Plans &amp; elevations PDF</a><button data-go="building">Open Building 3D</button></div></div>
+    </div>
+    <div class="ovgrid" data-network-only>
       <div class="panel"><h2><span>1.</span> HLD DESIGN <small>(KML/KMZ)</small></h2>
         <div id="ovMap" class="ovmap"></div>
         <div class="legend" id="ovLegend"></div>
@@ -212,6 +218,53 @@
     </div>
   </section>
 
+  <!-- Construction: the building in 3D, designed automatically from a brief and edited by hand (building3d.js) -->
+  <section id="tab-building" class="tab">
+    <div class="bldwrap">
+      <aside class="bldside">
+        <h3>Auto design</h3>
+        <p class="muted">A building made to your numbers: walls, rooms, doors and windows, slabs, stairs and roof. It
+          replaces the current building (its place on the map is kept); then edit it by hand.</p>
+        <div id="bldAuto" class="form"></div>
+        <button id="bldGenerate" class="ok">Design the building</button>
+        <h3>Manual</h3>
+        <div class="bldtools">
+          <button data-bt="select" class="active" title="Select; drag to move it (Esc)">Select</button>
+          <button data-bt="wall" title="Wall: click its start and end on the floor (snaps to wall ends and the 0.1 m grid)">Wall</button>
+          <button data-bt="door" title="Door: click on a wall">Door</button>
+          <button data-bt="window" title="Window: click on a wall">Window</button>
+          <button data-bt="column" title="Column: click on the floor">Column</button>
+          <button data-bt="stair" title="Stair: click its foot, then the direction it climbs">Stair</button>
+          <button id="bldDelete" class="danger" title="Delete the selection (Del)">Delete</button>
+        </div>
+        <div class="form">
+          <label>Working level <select id="bldLevel"></select></label>
+          <label class="inline"><input type="checkbox" id="bldAllLevels" checked> Show the levels above</label>
+        </div>
+        <div class="row"><button id="bldAddLevel" title="Add a floor on top, copying the walls of the top floor">+ Floor</button>
+          <button id="bldRoofBtn" title="Put a roof over the top floor (or change its type)">Roof…</button></div>
+        <div id="bldProps"></div>
+      </aside>
+      <div class="bldview">
+        <div class="row cadbar">
+          <button id="bld3dBtn" class="active">3D</button><button id="bldPlanBtn" title="Plan view of the working level">Plan</button>
+          <button id="bldFit" title="Fit the building in the view">Fit</button>
+          <span class="sep"></span>
+          <span class="muted">3D model</span>
+          <button data-bx="glb" title="glTF binary: SketchUp, Blender, Revit (import), web viewers">GLB</button>
+          <button data-bx="obj" title="Wavefront OBJ">OBJ</button>
+          <button data-bx="stl" title="STL for 3D printing a scale model (1:100)">STL</button>
+          <button data-bx="dxf" title="3D faces in a DXF for AutoCAD">DXF 3D</button>
+          <span class="sep"></span>
+          <a data-dl="plans.pdf"><button>Plans &amp; elevations PDF</button></a>
+          <span class="spacer"></span><span id="bldCoord" class="muted coordtxt">-</span>
+        </div>
+        <div id="bld3d" class="bld3d"></div>
+        <div id="bldMsg" class="muted"></div>
+      </div>
+    </div>
+  </section>
+
   <section id="tab-settings" class="tab">
     <div class="grid2">
       <div class="card"><h3>Project &amp; drawing title block</h3>
@@ -240,22 +293,24 @@
       <button id="btnRedo" title="Redo (Ctrl+Y)" disabled>&#8631; Redo</button>
       <span class="sep"></span>
       <button data-mode="select" class="active" title="Select / drag features (S)">Select</button>
-      <button data-mode="pole">+ Pole</button>
-      <button data-mode="home">+ Home</button>
-      <select id="nodeKind">
+      <button data-mode="place" data-construction-only hidden title="Click the map where the building's origin (its south-west corner) goes">Place building</button>
+      <label data-construction-only hidden title="Turn the building on the map (degrees, anticlockwise)">Turn <input id="bldRot" type="number" step="1" style="width:60px"> °</label>
+      <button data-mode="pole" data-network-only>+ Pole</button>
+      <button data-mode="home" data-network-only>+ Home</button>
+      <select id="nodeKind" data-network-only>
         <option value="POP">POP</option><option value="ENCLOSURE">Splice enclosure</option>
         <option value="PR_ENCLOSURE">PR enclosure</option><option value="JB">JB</option>
         <option value="PON">PON (1st-stage)</option><option value="FAT" selected>FAT</option><option value="SLACK">Slack loop</option>
       </select>
-      <button data-mode="node">+ Equipment</button>
+      <button data-mode="node" data-network-only>+ Equipment</button>
       <span class="sep"></span>
-      <select id="cableKind"><option value="main">Main</option><option value="spur" selected>Spur</option><option value="drop">Drop</option></select>
-      <select id="cableCores"></select>
-      <button data-mode="cable">Draw cable</button>
+      <select id="cableKind" data-network-only><option value="main">Main</option><option value="spur" selected>Spur</option><option value="drop">Drop</option></select>
+      <select id="cableCores" data-network-only></select>
+      <button data-mode="cable" data-network-only>Draw cable</button>
       <button data-mode="boundary">Boundary</button>
       <span class="sep"></span>
-      <button id="btnAssign" title="Assign unserved homes to nearest FAT with free ports">Auto-assign homes</button>
-      <button data-mode="extend" title="Click the map where the 48C backbone must reach (future phases)">Backbone end</button>
+      <button id="btnAssign" data-network-only title="Assign unserved homes to nearest FAT with free ports">Auto-assign homes</button>
+      <button data-mode="extend" data-network-only title="Click the map where the 48C backbone must reach (future phases)">Backbone end</button>
       <button id="btnAutoDesign" data-fibre-only class="ok" title="Design FATs, splitters, closures and cables from the survey data">Auto-design</button>
       <button id="btnDelete" class="danger" title="Delete selected (Del)">Delete selected</button>
       <span class="sep"></span>
@@ -455,6 +510,7 @@
 <script src="{% static 'planner/overview.js' %}"></script>
 <script src="{% static 'planner/tools.js' %}"></script>
 <script src="{% static 'planner/cad.js' %}"></script>
+<script src="{% static 'planner/building3d.js' %}"></script>
 <script src="{% static 'planner/assistant.js' %}"></script>
 <script src="{% static 'planner/share.js' %}"></script>
 <script src="{% static 'planner/sector.js' %}"></script>

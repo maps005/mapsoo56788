@@ -333,6 +333,11 @@ def bom(d: Design) -> list[BomLine]:
         add(r.building_cabling_code, sum(1 for h in d.homes if h.kind == "mdu" and h.units > 0 and h.fat in fats),
             "MDU buildings cabled")
 
+    if d.building is not None:  # construction: quantities measured from the building model
+        from . import building
+        for code, q, source in building.quantities(d.building):
+            add(code, q, source)
+
     adj: dict[str, float] = defaultdict(float)
     for a in d.adjustments:
         adj[a.code] += a.qty

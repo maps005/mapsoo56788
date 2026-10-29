@@ -7,9 +7,9 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
-from .. import calc, splicing, validate
+from .. import calc, sectors, splicing, validate
 from ..model import Design
-from . import dxf, excel, kml, lld, pdf, word
+from . import dxf, excel, kml, lld, pdf, plans, word
 from .common import Stamp
 
 Builder = Callable[[Design, Stamp, Path | None], bytes]
@@ -57,11 +57,20 @@ DELIVERABLES: dict[str, dict[str, Builder]] = {
     "home_list": {"xlsx": lambda d, s, p: excel.home_list_xlsx(d, s), "pdf": lambda d, s, p: pdf.home_list_pdf(d, s)},
     "qa": {"pdf": lambda d, s, p: pdf.qa_pdf(d, s), "xlsx": lambda d, s, p: excel.qa_xlsx(d, s)},
     "project": {"xlsx": lambda d, s, p: excel.project_xlsx(d, s), "json": _project_json, "zip": _csv_zip},
+    "plans": {"pdf": lambda d, s, p: plans.build_plans_pdf(d, s)},  # construction: floor plans and elevations
 }
 
 TITLES = {"hld": "HLD", "lld": "LLD", "pole_summary": "Pole Summary", "bom": "BOM", "boq": "BOQ",
           "splicing": "Splicing Diagram", "report": "Survey Report", "home_list": "Home List",
-          "qa": "QA & Approval Report", "project": "Project Data"}
+          "qa": "QA & Approval Report", "project": "Project Data", "plans": "Plans & Elevations"}
+NETWORK_ONLY = {"hld", "lld", "pole_summary", "splicing", "home_list"}
+
+
+def relevant(d: Design) -> list[str]:
+    """The deliverables of this project: a construction project has plans instead of the network drawings."""
+    if sectors.get(d.info.sector).get("construction"):
+        return [k for k in DELIVERABLES if k not in NETWORK_ONLY]
+    return [k for k in DELIVERABLES if k != "plans"]
 
 
 # design sections each deliverable is generated from (to flag only the outputs a change affects)
@@ -78,6 +87,7 @@ DEPENDS = {
     "home_list": ["homes", "info.region", "info.zone", "info.cluster", "info.name", "info.design_status"],
     "qa": ["*"],
     "project": ["*"],
+    "plans": _BASE + ["building"],
 }
 
 
@@ -114,11 +124,11 @@ def build_package(d: Design, st: Stamp, photo_dir: Path | None) -> bytes:
     buf = io.BytesIO()
     folders = {"hld": "01_HLD", "lld": "02_LLD", "pole_summary": "03_Pole_Summary", "bom": "04_BOM",
                "boq": "05_BOQ", "splicing": "06_Splicing", "report": "07_Survey_Report", "home_list": "08_Home_List",
-               "qa": "09_QA_Report", "project": "10_Project_Data"}
+               "qa": "09_QA_Report", "project": "10_Project_Data", "plans": "02_Plans"}
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         files = []
-        for deliv, fmts in DELIVERABLES.items():
-            for fmt in fmts:
+        for deliv in relevant(d):
+            for fmt in DELIVERABLES[deliv]:
                 name = f"{folders[deliv]}/{filename(d, deliv, fmt, st.revision)}"
                 z.writestr(name, build(d, deliv, fmt, st, photo_dir))
                 files.append(name)

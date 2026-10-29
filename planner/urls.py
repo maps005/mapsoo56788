@@ -32,6 +32,7 @@ urlpatterns = [
     path(f"{P}/ai-chat", views.ai_chat),
     path(f"{P}/apply-standard", views.apply_standard),
     path(f"{P}/apply-sector", views.apply_sector),
+    path(f"{P}/building/generate", views.building_generate),
     path(f"{P}/calc", views.calculations),
     path(f"{P}/splicing", views.splicing_view),
     path(f"{P}/revisions", views.revisions),

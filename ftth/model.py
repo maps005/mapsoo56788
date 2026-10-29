@@ -13,6 +13,8 @@ import re
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
+from .building import Building
+
 Status = Literal["existing", "proposed"]
 NodeKind = Literal["POP", "ENCLOSURE", "PR_ENCLOSURE", "JB", "PON", "FAT", "SLACK"]
 CableKind = Literal["main", "spur", "drop"]
@@ -359,7 +361,7 @@ class ProjectInfo(BaseModel):
     interception: str = ""
     interception_node: str = ""   # ID of the existing closure / POP the new network starts from
     interception_nodes: list[str] = Field(default_factory=list)  # further interception points (large areas)
-    sector: Literal["fibre", "water", "pipelines", "electricity", "lighting", "sanitation"] = "fibre"  # ftth.sectors
+    sector: Literal["fibre", "water", "pipelines", "electricity", "lighting", "sanitation", "construction"] = "fibre"  # ftth.sectors
     design_style: Literal["per_premise", "coverage"] = "per_premise"  # how Auto-design sizes FATs (see autodesign)
     extend_to: list[list[float]] = Field(default_factory=list)  # [[lat, lon]] backbone must reach (future phases)
     feeder_cores_available: str = ""
@@ -399,6 +401,7 @@ class Design(BaseModel):
     photos: list[Photo] = Field(default_factory=list)
     markups: list[Markup] = Field(default_factory=list, max_length=5000)
     cad_layers: list[CadLayer] = Field(default_factory=list, max_length=100)
+    building: Optional[Building] = None  # construction projects (ftth.building)
 
     def markup_visible(self, m: Markup) -> bool:
         """Drawn and exported: its layer is not hidden ("0" and unknown layers always show)."""

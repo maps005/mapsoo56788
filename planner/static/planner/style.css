@@ -258,6 +258,17 @@ details.layers label { color: #dbe4ee !important; font-size: 12px; }
 #cadSize { width: 52px; }
 #cadColour { width: 32px; height: 24px; padding: 0; border: none; background: none; }
 .cadbar + .cadbar { margin-top: 4px; }
+/* Building 3D (construction) */
+.bldwrap { display: flex; gap: 10px; align-items: stretch; }
+.bldside { width: 300px; flex: none; max-height: calc(100vh - 230px); overflow: auto; background: #fff; border: 1px solid #dde3ea;
+  border-radius: 8px; padding: 10px 12px; }
+.bldside h3 { margin: 8px 0 4px; }
+.bldtools { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+.bldtools button.active { background: #1d5a94; color: #fff; border-color: #1d5a94; }
+.bldview { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bld3d { flex: 1; min-height: 460px; height: calc(100vh - 300px); border-radius: 8px; overflow: hidden; position: relative; background: #dfe7ef; }
+.bld3d canvas { display: block; width: 100% !important; height: 100% !important; }
+@media (max-width: 900px) { .bldwrap { flex-direction: column; } .bldside { width: auto; max-height: none; } }
 .cadcmd { display: flex; align-items: center; gap: 6px; margin-top: 6px; background: #0b1118; border: 1px solid #24303f;
   border-radius: 6px; padding: 4px 8px; font-family: Consolas, "Courier New", monospace; }
 .cadcmd span { color: #7fd1ff; font-weight: 600; }
@@ -436,4 +447,4 @@ dialog.sharedlg::backdrop { background: rgba(10,20,35,.45); }
 .shlink input { background: #f6f9fd; color: var(--muted); }
 
 /* sector: fibre-only tools are hidden for water, pipelines, electricity and sanitation projects */
-[data-fibre-only][hidden], [data-tab][hidden] { display: none !important; }
+[data-fibre-only][hidden], [data-tab][hidden], [data-network-only][hidden], [data-construction-only][hidden] { display: none !important; }

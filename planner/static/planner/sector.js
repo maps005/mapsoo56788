@@ -9,6 +9,11 @@ function applySector() {
   const fibre = !t || t.fibre_tools;
   document.body.dataset.sector = t?.key || "fibre";
   $$("[data-fibre-only], [data-tab='splicing']").forEach((e) => { e.hidden = !fibre; });
+  // construction: a building instead of a network (Building 3D tab, site plan, no LLD / network tools)
+  const build = !!t?.construction;
+  $$("[data-network-only]").forEach((e) => { e.hidden = build; });
+  $$("[data-construction-only]").forEach((e) => { e.hidden = !build; });
+  if ((build && ["lld", "splicing"].includes(activeTab())) || (!build && activeTab() === "building")) $("[data-tab='overview']").click();
 
   // workflow steps
   $$("#steps > li").forEach((li, i) => {
@@ -22,9 +27,9 @@ function applySector() {
 
   // tabs and editor tools
   const relabel = (sel, text) => { const e = $(sel); if (!e) return; SECTOR_ORIG[sel] ??= e.textContent; e.textContent = text ?? SECTOR_ORIG[sel]; };
-  relabel("[data-tab='map']", fibre ? null : "Network map");
+  relabel("[data-tab='map']", fibre ? null : build ? "Site plan" : "Network map");
   relabel("[data-tab='lld']", fibre ? null : "Detailed drawing");
-  relabel("[data-tab='schedules']", fibre ? null : `${t.support} summary · BOM · BOQ`);
+  relabel("[data-tab='schedules']", fibre ? null : build ? "BOM · BOQ" : `${t.support} summary · BOM · BOQ`);
   relabel("[data-mode='pole']", fibre ? null : `+ ${t.support}`);
   relabel("#ovPolesTitle", fibre ? null : `${t.support} schedule`.toUpperCase());
   relabel("#ovPolesAll", fibre ? null : `All ${t.support.toLowerCase()}s`);

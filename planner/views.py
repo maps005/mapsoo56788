@@ -154,6 +154,29 @@ def apply_sector(request, pid):
     return JsonResponse(st | {"result": res})
 
 
+@api("POST")
+def building_generate(request, pid):
+    """Construction: design the building automatically from the brief (replaces the current building, keeping
+    where it sits on the map)."""
+    from ftth import building as B
+    try:
+        params = B.AutoParams.model_validate(_body(request))
+    except ValidationError as e:
+        er = e.errors(include_url=False)[0]
+        raise ApiError(400, f"{'.'.join(str(x) for x in er.get('loc', []))}: {er.get('msg', 'invalid value')}")
+
+    def run(d):
+        if d.info.design_status == "approved":
+            raise ApiError(409, "The design is approved: return it to draft before redesigning the building")
+        old = d.building
+        d.building = B.generate(params)
+        if old is not None:
+            d.building.origin, d.building.rotation, d.building.spec = old.origin, old.rotation, old.spec
+        return {"walls": len(d.building.walls), "openings": len(d.building.openings), "levels": len(d.building.levels)}
+    st, res = _operate(request, pid, run)
+    return JsonResponse(st | {"result": res})
+
+
 @api("GET")
 def list_standards(request):
     return JsonResponse([{"key": k, "label": v["label"], "design_style": v["design_style"]}
@@ -251,7 +274,7 @@ def _state(request, p: Project, d: Design | None = None) -> dict:
                         "last": ({"hash": exports[k].data_hash, "version": exports[k].version,
                                   "created": exports[k].created.isoformat()} if k in exports else None),
                         "stale": k in exports and exports[k].data_hash != part[k]}
-                    for k, v in package.DELIVERABLES.items()},
+                    for k, v in package.DELIVERABLES.items() if k in package.relevant(d)},
     }
 
 

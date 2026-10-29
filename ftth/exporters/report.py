@@ -90,8 +90,80 @@ def _feeding_pon(idx, splitter_id: str) -> str:
     return ""
 
 
+def _building_sections(d: Design) -> list[Section]:
+    """The report of a construction project: the building, its quantities and the checks."""
+    from .. import building as B
+    i, b = d.info, d.building
+    issues = validate.validate(d)
+    qa = validate.counts(issues)
+    bom = calc.bom(d)
+    total = calc.boq_total(bom)
+    out: list[Section] = []
+    ex = Section("Executive Summary")
+    if not b or not b.walls:
+        ex.p("No building has been designed yet (Building 3D: Auto design, or draw the walls).")
+        return [ex]
+    gross = sum(B.area(s.outline) for s in b.slabs if s.level < len(b.levels))
+    ex.cards([("Floors", str(len(b.levels))), ("Gross floor area", f"{gross:,.0f} m²"),
+              ("Walls", f"{len(b.walls)}"), ("Doors / windows", f"{sum(o.kind == 'door' for o in b.openings)} / "
+                                                             f"{sum(o.kind == 'window' for o in b.openings)}"),
+              ("BOQ estimate", f"{i.currency} {total:,.0f}")])
+    ex.p(f"This report covers the design and quantities of {i.name or 'the building'}"
+         + (f" in {i.area}" if i.area else "") + (f" for {i.client}" if i.client else "") + ". "
+         f"The quality checks report {qa['errors']} error(s) and {qa['warnings']} warning(s).")
+    out.append(ex)
+    intro = Section("1. Introduction")
+    intro.text(i.introduction)
+    intro.kv([["Project", i.name], ["Site", i.area], ["Client", i.client], ["Prepared by", i.prepared_by],
+              ["Located on the map", "yes" if b.origin else "not yet"]])
+    out.append(intro)
+    bld = Section("2. The Building")
+    bld.text(i.proposed_solution)
+    bld.h("2.1 Levels")
+    bld.table(["Level", "Floor level", "Height", "Floor area", "Walls", "Doors", "Windows"],
+              [[lv.name, f"{lv.elevation:+.2f} m", f"{lv.height:.2f} m",
+                f"{sum(B.area(s.outline) for s in b.slabs if s.level == k):,.1f} m²",
+                sum(w.level == k for w in b.walls),
+                sum(o.kind == "door" and b.wall(o.wall) and b.wall(o.wall).level == k for o in b.openings),
+                sum(o.kind == "window" and b.wall(o.wall) and b.wall(o.wall).level == k for o in b.openings)]
+               for k, lv in enumerate(b.levels)])
+    if b.roofs:
+        bld.h("2.2 Roofs")
+        bld.table(["Roof", "Type", "Pitch", "Covering", "Covered area", "Ridge + hips", "Eaves"],
+                  [[r.id, r.kind, f"{r.pitch:g}°", r.covering, f"{B.roof_geometry(r)['area']:,.1f} m²",
+                    f"{B.roof_geometry(r)['ridge'] + B.roof_geometry(r)['hips']:,.1f} m",
+                    f"{B.roof_geometry(r)['eaves']:,.1f} m"] for r in b.roofs])
+    sp = b.spec
+    bld.h("2.3 Specification")
+    bld.kv([["Strip footings", f"{sp.footing_width:g} m wide, {sp.footing_thickness:g} m thick, "
+                               f"excavated {sp.excavation_depth:g} m"],
+            ["Hardcore under the ground slab", f"{sp.hardcore:g} m"], ["Reinforcement", f"{sp.rebar_kg_per_m3:g} kg/m³"],
+            ["Plaster and render", "yes" if sp.plaster else "no"], ["Setback from the plot boundary", f"{sp.setback:g} m"]])
+    out.append(bld)
+    mat = Section("3. Bill of Quantities Summary")
+    mat.table(["Item", "Unit", "Quantity", "Rate", "Amount"],
+              [[ln.description, ln.unit, f"{ln.qty:,.2f}", f"{ln.rate:,.2f}" if ln.rate is not None else "not priced",
+                f"{ln.total:,.2f}" if ln.total is not None else "-"] for ln in bom if ln.qty] +
+              [["Total", "", "", "", f"{total:,.2f}"]], total=True)
+    unpriced = sum(1 for ln in bom if ln.qty and not ln.rate)
+    if unpriced:
+        mat.p(f"{unpriced} item(s) have no rate yet: add them in Materials & rules.")
+    out.append(mat)
+    con = Section("4. Quality Checks and Recommendations")
+    con.text(i.recommendations)
+    errs = [x for x in issues if x["severity"] in ("error", "warning")]
+    if errs:
+        con.table(["Severity", "Check"], [[x["severity"], x["message"]] for x in errs])
+    else:
+        con.p("No errors or warnings.")
+    out.append(con)
+    return out
+
+
 def sections(d: Design) -> list[Section]:
     i, r = d.info, d.rules
+    if sectors.get(i.sector).get("construction"):
+        return _finish(_building_sections(d), [])
     s = calc.summary(d)
     lengths = calc.cable_lengths(d, proposed_only=True)
     issues = validate.validate(d)
@@ -384,9 +456,13 @@ def sections(d: Design) -> list[Section]:
     con.p(f"Estimated material cost (BOQ): {s['currency']} {s['boq_total']:,.2f}.")
     out.append(con)
 
-    words = sectors.wording(i.sector)  # fibre words -> the sector's words
+    return _finish(out, sectors.wording(i.sector))
+
+
+def _finish(out: list[Section], words) -> list[Section]:
+    """Fibre words -> the sector's words, and text that XML-based formats (docx, pdf) can store."""
     txt = (lambda x: clean(sectors.reword(clean(x), words))) if words else clean
-    for sec in out:  # text that XML-based formats (docx, pdf) can store
+    for sec in out:
         sec.title = txt(sec.title)
         blocks = []
         for b in sec.blocks:

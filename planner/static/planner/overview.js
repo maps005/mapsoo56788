@@ -57,6 +57,15 @@ function renderSteps() {
   const o = st.outputs || {}, lld = o.lld;
   set(5, !lld?.last ? "DXF / PDF not generated yet" : lld.stale ? "Needs regenerating" : "DXF / PDF up to date",
     !lld?.last ? "" : lld.stale ? "warn" : "ok");
+  if (sec?.construction) {  // a building, not a network: the site, the design and its plans
+    const b = D.building, walls = b?.walls?.length || 0, plans = o.plans;
+    set(1, D.info.boundary.length ? `Plot boundary drawn${b?.origin ? " · building placed" : ""}` : "No plot boundary yet (Site plan)",
+      D.info.boundary.length ? "ok" : "warn");
+    set(2, c.errors ? `${c.errors} error(s) to fix` : walls ? "Clean" : "Waiting for the design", c.errors ? "err" : walls ? "ok" : "warn");
+    set(3, walls ? `${b.levels.length} floor(s) · ${walls} walls · ${b.openings.length} doors & windows` : "No building yet", walls ? "ok" : "");
+    set(5, !plans?.last ? "Plans PDF not generated yet" : plans.stale ? "Needs regenerating" : "Plans up to date",
+      !plans?.last ? "" : plans.stale ? "warn" : "ok");
+  }
   const keys = Object.keys(o), ok = keys.filter((k) => o[k].last && !o[k].stale).length;
   set(6, `${ok} of ${keys.length} deliverables up to date`, ok === keys.length ? "ok" : ok ? "warn" : "");
   const ds = D.info.design_status;
@@ -82,6 +91,7 @@ async function renderOverview() {
   if (!S.D) return;
   drawOvMap();
   drawLld($("#ovLld"), false);
+  if (typeof renderOvBuilding === "function") renderOvBuilding();
   renderOvReport();
   renderFileIcons();
   $("#ovLegend").innerHTML = legend().map(([k, t, cls]) => `<span><i class="${cls}" style="background:${COL[k]}"></i>${t}</span>`).join("") +
@@ -164,9 +174,12 @@ function renderOvTables(c) {
 function renderOvReport() {
   const i = S.D.info, D = S.D;
   const photo = D.photos[0];
-  const secs = [["Introduction", i.introduction], ["Survey findings", i.findings], ["Proposed solution", i.proposed_solution],
-    ["Cable routing & installation", D.cables.some((c) => c.status === "proposed")], ["Equipment locations", D.nodes.length],
-    ["Special requirements", i.special_requirements], ["Conclusion & recommendations", i.recommendations]];
+  const secs = S.st?.sector?.construction  // the sections of the building report (ftth/exporters/report.py)
+    ? [["Introduction", i.introduction], ["The building", D.building?.walls?.length], ["Bill of quantities", D.building?.walls?.length],
+       ["Quality checks & recommendations", i.recommendations]]
+    : [["Introduction", i.introduction], ["Survey findings", i.findings], ["Proposed solution", i.proposed_solution],
+       ["Cable routing & installation", D.cables.some((c) => c.status === "proposed")], ["Equipment locations", D.nodes.length],
+       ["Special requirements", i.special_requirements], ["Conclusion & recommendations", i.recommendations]];
   const title = S.st?.sector && !S.st.sector.fibre_tools ? S.st.sector.report_title : "FTTH Survey Report";
   $("#ovReport").innerHTML = `<h4>${esc(title.toUpperCase())}</h4><div class="sub">${esc(i.area || i.name)}</div>` +
     (photo ? `<img src="/api/projects/${S.pid}/photos/${esc(photo.file)}" alt="${esc(photo.caption)}">` : "") +
@@ -182,7 +195,9 @@ function renderFileIcons() {
   const o = S.st?.outputs || {};
   let fresh = 0;
   const t = S.st?.sector;
-  const files = t && !t.fibre_tools  // other sectors: no splicing diagram; the pole summary is their schedule
+  const files = t?.construction  // construction: plans instead of the network drawings
+    ? [["Plans & Elevations", "PDF", "plans.pdf", "#c62828", "plans"], ...FILES.filter((f) => ["bom", "boq", "report", "qa"].includes(f[4]))]
+    : t && !t.fibre_tools  // other sectors: no splicing diagram; the pole summary is their schedule
     ? FILES.filter((f) => f[4] !== "splicing").map((f) => f[4] === "pole_summary" ? [`${t.support} Schedule`, ...f.slice(1)] : f)
     : FILES;
   $("#fileIcons").innerHTML = files.map(([t, tag, spec, col, k]) => {

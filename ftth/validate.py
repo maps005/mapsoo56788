@@ -143,6 +143,11 @@ def validate(d: Design) -> list[dict]:
     else:
         _sector_checks(d, add)
 
+    # ---- building (construction) ---------------------------------------------
+    if d.building is not None:
+        from . import building
+        issues.extend(building.check(d.building, d.info.boundary))
+
     # ---- materials -----------------------------------------------------------
     for line in calc.bom(d):
         if line.rate is None:

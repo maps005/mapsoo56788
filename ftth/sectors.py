@@ -347,6 +347,78 @@ SECTORS: dict[str, dict] = {
             "home": [_f("connection_type", "Connection", ["Domestic", "Commercial", "Institutional"])],
         },
     },
+    # Buildings, not networks: the Building 3D tab designs them (ftth.building); the network map, the LLD
+    # drawing and HLD outputs are not used. Quantities come from the building model.
+    "construction": {
+        "construction": True,
+        "sizes": [1], "size_defaults": {"main": 1, "spur": 1, "drop": 1},
+        "label": "Construction / buildings",
+        "network": "building",
+        "report_title": "Building Design and Quantities Report",
+        "fibre_tools": False,
+        "install": "underground",
+        "unit": "dwellings", "unit_one": "dwelling",
+        "premise": "Building", "support": "Site point", "line": "Line", "size": "Size", "size_unit": "",
+        "lines": {"main": "Line", "spur": "Line", "drop": "Line"},
+        "kinds": {"POP": "Site point", "ENCLOSURE": "Site point", "PR_ENCLOSURE": "Site point", "JB": "Site point",
+                  "PON": "Site point", "FAT": "Site point", "SLACK": "Site point"},
+        "ports": {},
+        "hardware": [],
+        "steps": [
+            ("Site Survey & Brief", ["Plot boundary on the map", "Levels & ground conditions", "Client brief & rooms",
+                                     "Photos & site notes"]),
+            _STEPS_CLEAN,
+            ("Building Design (3D)", ["Auto design from the brief", "Walls, doors & windows", "Floors, stairs & roof",
+                                      "Place on the site plan"]),
+            ("Quantities & Materials", ["Concrete, blocks, steel", "Roofing & finishes", "Doors & windows",
+                                        "Rates from the price list"]),
+            ("Plans & Elevations", ["Floor plans with dimensions", "Four elevations", "3D model (GLB / OBJ / STL / DXF)"]),
+            ("Generate Deliverables", ["Plans & elevations (PDF)", "BOM · BOQ (Excel/PDF)", "Design & quantities report"]),
+            ("Quality Assurance & Approval", ["Openings, headroom, stairs", "Setback from the plot boundary",
+                                              "Version control & revisions", "Final design package"]),
+        ],
+        "materials": [
+            _m("EXCAVATION", "Excavation for strip footings", "M3", "Substructure"),
+            _m("HARDCORE", "Hardcore filling, compacted", "M3", "Substructure"),
+            _m("DPM", "Damp-proof membrane", "M2", "Substructure"),
+            _m("CONC-FOOTING", "Concrete C20 in strip footings", "M3", "Concrete"),
+            _m("CONC-SLAB", "Concrete C25 in slabs", "M3", "Concrete"),
+            _m("CONC-COLUMN", "Concrete C25 in columns", "M3", "Concrete"),
+            _m("CONC-STAIR", "Concrete C25 in stairs", "M3", "Concrete"),
+            _m("CONC-WALL", "Concrete C25 in walls", "M3", "Concrete"),
+            _m("REBAR", "High-yield reinforcement bars", "KG", "Reinforcement"),
+            _m("FORMWORK", "Formwork to soffits and columns", "M2", "Concrete"),
+            _m("BLOCKWORK-EXT", "200 mm blockwork, external walls", "M2", "Walling"),
+            _m("BLOCKWORK-INT", "150 mm blockwork, internal walls", "M2", "Walling"),
+            _m("BRICKWORK-EXT", "Brickwork, external walls", "M2", "Walling"),
+            _m("BRICKWORK-INT", "Brickwork, internal walls", "M2", "Walling"),
+            _m("STONEWORK-EXT", "Dressed stone, external walls", "M2", "Walling"),
+            _m("STONEWORK-INT", "Dressed stone, internal walls", "M2", "Walling"),
+            _m("LINTEL", "Reinforced concrete lintel", "M", "Walling"),
+            _m("PLASTER", "Internal plaster, 12 mm", "M2", "Finishes"),
+            _m("RENDER", "External render, 15 mm", "M2", "Finishes"),
+            _m("PAINT-INT", "Emulsion paint, 3 coats", "M2", "Finishes"),
+            _m("PAINT-EXT", "Weatherproof paint, 3 coats", "M2", "Finishes"),
+            _m("SCREED", "Floor screed, 40 mm", "M2", "Finishes"),
+            _m("CEILING", "Ceiling boards on brandering", "M2", "Finishes"),
+            _m("ROOF-SHEETS", "Pre-painted iron roofing sheets", "M2", "Roofing"),
+            _m("ROOF-TILES", "Roof tiles on battens", "M2", "Roofing"),
+            _m("ROOF-TIMBER", "Treated roof timber (rafters, ridge, wall plate)", "M", "Roofing"),
+            _m("RIDGE", "Ridge and hip capping", "M", "Roofing"),
+            _m("GUTTER", "Gutters", "M", "Roofing"),
+            _m("FASCIA", "Fascia boards", "M", "Roofing"),
+            _m("DOOR-SINGLE", "Single door with frame and ironmongery", "PCS", "Doors"),
+            _m("DOOR-DOUBLE", "Double door with frame and ironmongery", "PCS", "Doors"),
+            _m("DOOR-SLIDING", "Sliding door", "PCS", "Doors"),
+            _m("DOOR-ARCHED", "Arched door", "PCS", "Doors"),
+            _m("WINDOW-FIXED", "Fixed window, glazed", "M2", "Windows"),
+            _m("WINDOW-CASEMENT", "Casement window, glazed", "M2", "Windows"),
+            _m("WINDOW-SLIDING", "Sliding window, glazed", "M2", "Windows"),
+            _m("WINDOW-HUNG", "Hung sash window, glazed", "M2", "Windows")],
+        "rules": {**_BURIED, "cable_code": "", "pole_code": "", "crossing_code": "", "node_codes": {},
+                  "implementation_costs": False},
+        "details": {},
+    },
 }
 CHOICES = [(k, v["label"]) for k, v in SECTORS.items()]
 
@@ -358,7 +430,7 @@ _SHORT = {"water": ("service connection", "marker post", "pipe"), "pipelines": (
 
 def wording(key: str | None) -> list[tuple[str, str]]:
     """(fibre word, sector word) pairs, longest first, for report text; empty for fibre."""
-    if not key or key == FIBRE or key not in SECTORS:
+    if not key or key == FIBRE or key not in SECTORS or SECTORS[key].get("construction"):
         return []
     p, (fat, support, line) = SECTORS[key], _SHORT[key]
     premise = p["premise"].split("/")[0].strip()
@@ -412,6 +484,7 @@ def profile(key: str | None) -> dict:
         "label", "network", "report_title", "fibre_tools", "install", "unit", "unit_one", "premise", "support",
         "line", "size", "size_unit", "lines", "kinds", "ports", "hardware", "steps", "sizes", "size_defaults",
         "details")}, "port_sizes": p.get("port_sizes", {}), "port_defaults": p.get("port_defaults", {}),
+        "construction": bool(p.get("construction")),
         "schedule": [list(c) for c in schedule_columns(key)]}
 
 
