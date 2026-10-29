@@ -79,7 +79,7 @@ def test_plans_report_and_package_are_the_buildings():
     st = stamp(d, 1)
     pages = PdfReader(io.BytesIO(plans.build_plans_pdf(d, st))).pages
     text = " ".join(p.extract_text() for p in pages)
-    assert len(pages) == 3 and "Ground floor plan" in text and "Floor 1 plan" in text and "South (front) elevation" in text
+    assert len(pages) == 5 and "Ground floor plan" in text and "Floor 1 plan" in text and "South (front) elevation" in text
     assert "12.00 m" in text and "Scale 1:" in text
     titles = [s.title for s in report.sections(d)]
     assert titles[2] == "2. The Building" and "FTTH" not in " ".join(titles)

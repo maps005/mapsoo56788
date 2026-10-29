@@ -62,6 +62,8 @@ class Room(BaseModel):
     y: float
     area: float = Field(default=0.0, ge=0)
     w: float = Field(default=0.0, ge=0)  # room for the label across the room, m (0: any)
+    rect: Optional[list[float]] = None    # [x0, y0, x1, y1] between the wall centrelines: where furniture goes
+    door: Optional[Pt] = None             # where its door is (furniture keeps clear and faces it)
 
 
 class Slab(BaseModel):
@@ -509,7 +511,9 @@ def _grid_floors(b: Building, p: AutoParams, W, D, te, ti):
             name = entry if k == 0 and lv == 0 else service[(k - 1) % len(service)] if 0 < k <= len(service) \
                 else main
             b.rooms.append(Room(id=nid("RM"), level=lv, name=name, x=round(x0 + (i + 0.5) * cw, 2),
-                                y=round(y0 + (j + 0.5) * ch, 2), area=round((cw - ti) * (ch - ti), 1), w=round(cw - ti, 2)))
+                                y=round(y0 + (j + 0.5) * ch, 2), area=round((cw - ti) * (ch - ti), 1), w=round(cw - ti, 2),
+                                rect=_rect((x0 + i * cw, y0 + j * ch), (x0 + (i + 1) * cw, y0 + (j + 1) * ch)),
+                                door=[round(x0 + (i + 0.5) * cw, 2), round(y0 + j * ch, 2)] if j else None))
         b.slabs.append(Slab(id=f"S{lv + 1:02d}", level=lv, outline=[[0, 0], [W, 0], [W, D], [0, D]], thickness=0.15))
         if hall and lv < p.floors - 1:
             b.stairs.append(Stair(id=f"ST{lv + 1:02d}", level=lv, x=x0 + te / 2 + stair_w / 2 + 0.05,
@@ -519,6 +523,10 @@ def _grid_floors(b: Building, p: AutoParams, W, D, te, ti):
             ys = [y0 + j * ch for j in range(p.rooms_y + 1)]
             b.columns += [Column(id=f"C{lv}-{i}-{j}", level=lv, x=x, y=y, size=max(te, 0.3))
                           for i, x in enumerate(xs) for j, y in enumerate(ys)]
+
+
+def _rect(p0, p1) -> list[float]:
+    return [round(min(p0[0], p1[0]), 3), round(min(p0[1], p1[1]), 3), round(max(p0[0], p1[0]), 3), round(max(p0[1], p1[1]), 3)]
 
 
 def _corridor_floors(b: Building, p: AutoParams, P, along_x, u0, v0, u1, v1, cw, layout):
@@ -639,7 +647,8 @@ def _corridor_floors(b: Building, p: AutoParams, P, along_x, u0, v0, u1, v1, cw,
                 name = main
             xy = P((a + c) / 2, (v0 + cv0) / 2)
             b.rooms.append(Room(id=nid("RM"), level=lv, name=name, x=xy[0], y=xy[1], area=area_s,
-                                w=round(c - a - ti, 2) if along_x else round(cv0 - v0 - te, 2)))
+                                w=round(c - a - ti, 2) if along_x else round(cv0 - v0 - te, 2),
+                                rect=_rect(P(a, v0), P(c, cv0)), door=P((a + c) / 2, cv0)))
             if layout == "double":  # by the cores: the lift, then service rooms; the rest are main rooms
                 near_core = (ends >= 1 and k == 0) or (ends == 2 and k == len(cuts) - 2) or k in (1, len(cuts) - 3)
                 if near_core and (lift and k == 0):
@@ -652,7 +661,8 @@ def _corridor_floors(b: Building, p: AutoParams, P, along_x, u0, v0, u1, v1, cw,
                 area_n = round((c - a - ti) * (v1 - cv1 - te / 2 - ti / 2), 1)
                 xy = P((a + c) / 2, (cv1 + v1) / 2)
                 b.rooms.append(Room(id=nid("RM"), level=lv, name=name_n, x=xy[0], y=xy[1], area=area_n,
-                                    w=round(c - a - ti, 2) if along_x else round(v1 - cv1 - te, 2)))
+                                    w=round(c - a - ti, 2) if along_x else round(v1 - cv1 - te, 2),
+                                    rect=_rect(P(a, cv1), P(c, v1)), door=P((a + c) / 2, cv1)))
         xy = P(centre, (cv0 + cv1) / 2)
         b.rooms.append(Room(id=nid("RM"), level=lv, name="Corridor", x=xy[0], y=xy[1],
                             area=round((u1 - u0 - te) * (cv1 - cv0 - ti), 1)))
@@ -709,7 +719,10 @@ def add_block(b: Building, p: AutoParams) -> Building:
     for c in new.columns:
         b.columns.append(c.model_copy(update={"id": pre + c.id, "level": c.level + s, "x": c.x + p.x, "y": c.y + p.y}))
     for r in new.rooms:
-        b.rooms.append(r.model_copy(update={"id": pre + r.id, "level": r.level + s, "x": r.x + p.x, "y": r.y + p.y}))
+        b.rooms.append(r.model_copy(update={
+            "id": pre + r.id, "level": r.level + s, "x": r.x + p.x, "y": r.y + p.y,
+            "rect": [r.rect[0] + p.x, r.rect[1] + p.y, r.rect[2] + p.x, r.rect[3] + p.y] if r.rect else None,
+            "door": [r.door[0] + p.x, r.door[1] + p.y] if r.door else None}))
     for r in new.roofs:
         b.roofs.append(r.model_copy(update={"id": f"R{tag}", "level": r.level + s, "x0": r.x0 + p.x, "y0": r.y0 + p.y,
                                             "x1": r.x1 + p.x, "y1": r.y1 + p.y}))
