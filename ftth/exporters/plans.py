@@ -146,6 +146,95 @@ def _plan(cv, b: B.Building, lv: int, T, k: float):
     for c in (c for c in b.columns if c.level == lv):
         h = c.size / 2
         _poly(cv, [T(c.x - h, c.y - h), T(c.x + h, c.y - h), T(c.x + h, c.y + h), T(c.x - h, c.y + h)], fill=True)
+    for r in (r for r in b.rooms if r.level == lv and r.name != "Stair"):  # names and floor areas (stairs show)
+        x, y = T(r.x, r.y)
+        name = r.name.upper() if r.name != "Corridor" else r.name
+        size = max(5.0, min(8.0, 1.6 * k))
+        room = (r.w * k - 4) if r.w else 1e9  # shrink, then wrap, a name to fit its room
+        while size > 4 and cv.stringWidth(name, "Helvetica-Bold", size) > room:
+            size -= 0.5
+        lines = [name]
+        if cv.stringWidth(name, "Helvetica-Bold", size) > room and " " in name:
+            cut = name.rfind(" ", 0, len(name) // 2 + 3)
+            lines = [name[:cut], name[cut + 1:]]
+        cv.setFillColor(DARK)
+        cv.setFont("Helvetica-Bold", size)
+        for i, line in enumerate(lines):
+            cv.drawCentredString(x, y + 1 + (len(lines) - 1 - i) * (size + 1), line)
+        if r.area:
+            cv.setFont("Helvetica", size - 1)
+            cv.setFillColor(GREY)
+            cv.drawCentredString(x, y - size, f"{r.area:g} m²")
+
+
+LANDSCAPE_STYLE = {  # fill, label
+    "flower_bed": ("#f3b6cc", "Flower beds"), "shrub_bed": ("#9cc58f", "Shrub beds"), "lawn": ("#cfe8b8", "Lawn"),
+    "paving": ("#dcd8d0", "Paving"), "hedge": ("#2f6b2f", "Hedges"), "tree": ("#3f8f3f", "Trees"),
+}
+
+
+def _landscape_page(cv, d, st, b: B.Building, page: int, total: int):
+    """The compound: the ground floor with the landscaping round it, a legend and the planting schedule."""
+    pts = [p for w in b.walls if w.level == 0 for p in (w.a, w.b)] + [p for x in b.landscape for p in x.points]
+    x0, x1 = min(p[0] for p in pts) - 4, max(p[0] for p in pts) + 4
+    y0, y1 = min(p[1] for p in pts) - 4, max(p[1] for p in pts) + 4
+    box_w, box_h = W - 2 * M - 220, H - 2 * M - 100
+    n = _scale(x1 - x0, y1 - y0, box_w, box_h)
+    k = 1000 / n * PT_PER_MM
+    ox = M + 30 + (box_w - (x1 - x0) * k) / 2
+    oy = M + 70 + (box_h - (y1 - y0) * k) / 2
+    T = lambda x, y: (ox + (x - x0) * k, oy + (y - y0) * k)  # noqa: E731
+    _frame(cv, d, st, "Landscaping and site layout", page, total, n)
+    for x in b.landscape:  # under the building
+        fill, _ = LANDSCAPE_STYLE[x.kind]
+        cv.setStrokeColor(colors.HexColor("#4d5a3f"))
+        cv.setFillColor(colors.HexColor(fill))
+        cv.setLineWidth(0.5)
+        if x.kind in B.LANDSCAPE_AREAS and len(x.points) >= 3:
+            _poly(cv, [T(*q) for q in x.points], fill=True)
+        elif x.kind == "hedge":
+            cv.setStrokeColor(colors.HexColor(fill))
+            cv.setLineWidth(max(2.0, 0.6 * k))
+            for a, c in zip(x.points, x.points[1:]):
+                cv.line(*T(*a), *T(*c))
+        elif x.kind == "tree":
+            cx, cy = T(*x.points[0])
+            cv.circle(cx, cy, max(4.0, 1.5 * k), stroke=1, fill=1)
+            cv.setFillColor(colors.HexColor("#6b4a2f"))
+            cv.circle(cx, cy, 1.2, stroke=0, fill=1)
+    _plan(cv, b, 0, T, k)
+    # legend and schedule on the right
+    q = {code: (qty, src) for code, qty, src in B.quantities(b)}
+    rows = [(LANDSCAPE_STYLE[kind][0], LANDSCAPE_STYLE[kind][1], txt) for kind, txt in (
+        ("flower_bed", f"{sum(B.area(x.points) for x in b.landscape if x.kind == 'flower_bed'):,.1f} m², {q.get('PLANTS-FLOWER', (0,))[0]:,.0f} plants"),
+        ("shrub_bed", f"{sum(B.area(x.points) for x in b.landscape if x.kind == 'shrub_bed'):,.1f} m², {q.get('SHRUBS', (0,))[0]:,.0f} shrubs"),
+        ("lawn", f"{q.get('GRASS', (0,))[0]:,.1f} m² of turf"),
+        ("paving", f"{q.get('PAVING', (0,))[0]:,.1f} m²"),
+        ("hedge", f"{q.get('HEDGE', (0,))[0]:,.0f} plants"),
+        ("tree", f"{sum(x.kind == 'tree' for x in b.landscape)} trees")) if any(x.kind == kind for x in b.landscape)]
+    lx, ly = W - M - 180, H - M - 60
+    cv.setFillColor(DARK)
+    cv.setFont("Helvetica-Bold", 10)
+    cv.drawString(lx, ly, "Landscaping")
+    for fill, label, txt in rows:
+        ly -= 26
+        cv.setFillColor(colors.HexColor(fill))
+        cv.setStrokeColor(colors.HexColor("#4d5a3f"))
+        cv.rect(lx, ly - 2, 14, 10, stroke=1, fill=1)
+        cv.setFillColor(DARK)
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawString(lx + 20, ly + 4, label)
+        cv.setFont("Helvetica", 7.5)
+        cv.drawString(lx + 20, ly - 6, txt)
+    ly -= 30
+    cv.setFont("Helvetica", 7)
+    for line in ("Quantities are typical rates (topsoil 300 mm,", "6 flowers / m², 1.5 shrubs / m²,",
+                 "3 hedge plants / m, 1 m³ tree pits).", "A landscape architect confirms species,",
+                 "soil and irrigation."):
+        cv.drawString(lx, ly, line)
+        ly -= 10
+    cv.setFont("Helvetica", 9)
+    cv.drawRightString(W - M - 10, H - M - 18, "N ↑")
 
 
 def _elevation(cv, b: B.Building, view: str, box, label: str):
@@ -166,55 +255,65 @@ def _elevation(cv, b: B.Building, view: str, box, label: str):
     ox = x + (bw - (umax - umin) * k) / 2
     oy = y + 14 + 0.5 * k
     T = lambda uu, z: (ox + (uu - umin) * k, oy + z * k)  # noqa: E731
-    cx = sum(p[0] for p in pts) / len(pts)
-    cy = sum(p[1] for p in pts) / len(pts)
+    # each block (the first design, then wings and towers added to it: ids "B2-...") is drawn on its own,
+    # farthest first, so a nearer block hides what is behind it
+    def block_of(i: str) -> str:
+        return i.split("-")[0] if i.startswith("B") and "-" in i else ""
+    blocks: dict[str, list] = {}
+    for w in b.walls:
+        blocks.setdefault(block_of(w.id), []).append(w)
+    depth = lambda ws: sum(p[0] * toward[0] + p[1] * toward[1] for w in ws for p in (w.a, w.b)) / (2 * len(ws))  # noqa: E731
     cv.setStrokeColor(colors.black)
-    for lv_i, lv in enumerate(b.levels):  # wall silhouette of each level
-        ws = [w for w in b.walls if w.level == lv_i and w.kind == "external"]
-        if not ws:
-            continue
-        us = [u(p) for w in ws for p in (w.a, w.b)]
-        h = max(b.wall_height(w) for w in ws)
-        cv.setFillColor(colors.HexColor("#eef1f4"))
-        cv.setLineWidth(0.8)
-        _poly(cv, [T(min(us), lv.elevation), T(max(us), lv.elevation), T(max(us), lv.elevation + h), T(min(us), lv.elevation + h)], fill=True)
-        for w in ws:  # openings of the walls facing the viewer
-            L = B.length(w) or 1
-            mx, my = (w.a[0] + w.b[0]) / 2, (w.a[1] + w.b[1]) / 2
-            nx, ny = -(w.b[1] - w.a[1]) / L, (w.b[0] - w.a[0]) / L
-            if nx * (mx - cx) + ny * (my - cy) < 0:
-                nx, ny = -nx, -ny  # outward
-            if nx * toward[0] + ny * toward[1] < 0.7:
+    for key, bws in sorted(blocks.items(), key=lambda kv: depth(kv[1])):
+        cx = sum(p[0] for w in bws for p in (w.a, w.b)) / (2 * len(bws))
+        cy = sum(p[1] for w in bws for p in (w.a, w.b)) / (2 * len(bws))
+        roofs = [r for r in b.roofs if (f"B{r.id[1:]}" if r.id[1:].isdigit() and r.id != "R1" else "") == key]
+        for lv_i, lv in enumerate(b.levels):  # wall silhouette of each level
+            ws = [w for w in bws if w.level == lv_i and w.kind == "external"]
+            if not ws:
                 continue
-            for o in (o for o in b.openings if o.wall == w.id):
-                c = (w.a[0] + (w.b[0] - w.a[0]) / L * o.offset, w.a[1] + (w.b[1] - w.a[1]) / L * o.offset)
-                half = o.width / 2 * abs((w.b[0] - w.a[0]) / L * right[0] + (w.b[1] - w.a[1]) / L * right[1])
-                z0 = lv.elevation + o.sill
-                cv.setFillColor(colors.HexColor("#cfe3f3") if o.kind == "window" else colors.HexColor("#c8a27a"))
-                cv.setLineWidth(0.5)
-                _poly(cv, [T(u(c) - half, z0), T(u(c) + half, z0), T(u(c) + half, z0 + o.height), T(u(c) - half, z0 + o.height)], fill=True)
-    for r in b.roofs:  # roof profile
-        g = B.roof_geometry(r)
-        lv = b.levels[min(r.level, len(b.levels) - 1)]
-        ze = lv.elevation + lv.height
-        corners = [[r.x0 - r.overhang, r.y0 - r.overhang], [r.x1 + r.overhang, r.y1 + r.overhang]]
-        u0, u1 = sorted(u(p) for p in corners)
-        along_view = (r.ridge == "x") == (right[1] == 0)  # the ridge runs across the drawing
-        across = (r.y1 - r.y0 if r.ridge == "x" else r.x1 - r.x0) + 2 * r.overhang
-        cv.setFillColor(colors.HexColor("#8a4b38") if r.covering == "tiles" else colors.HexColor("#6b7884"))
-        cv.setLineWidth(0.8)
-        if r.kind == "flat":  # slab edge, or the parapet wall round the roof
-            _poly(cv, [T(u0, ze), T(u1, ze), T(u1, ze + max(0.3, r.parapet)), T(u0, ze + max(0.3, r.parapet))], fill=True)
-        elif r.kind == "shed":
-            if along_view:
-                _poly(cv, [T(u0, ze), T(u1, ze), T(u1, ze + g["rise"]), T(u0, ze + g["rise"])], fill=True)
+            us = [u(p) for w in ws for p in (w.a, w.b)]
+            h = max(b.wall_height(w) for w in ws)
+            cv.setFillColor(colors.HexColor("#eef1f4"))
+            cv.setLineWidth(0.8)
+            _poly(cv, [T(min(us), lv.elevation), T(max(us), lv.elevation), T(max(us), lv.elevation + h), T(min(us), lv.elevation + h)], fill=True)
+            for w in ws:  # openings of the walls facing the viewer
+                L = B.length(w) or 1
+                mx, my = (w.a[0] + w.b[0]) / 2, (w.a[1] + w.b[1]) / 2
+                nx, ny = -(w.b[1] - w.a[1]) / L, (w.b[0] - w.a[0]) / L
+                if nx * (mx - cx) + ny * (my - cy) < 0:
+                    nx, ny = -nx, -ny  # outward
+                if nx * toward[0] + ny * toward[1] < 0.7:
+                    continue
+                for o in (o for o in b.openings if o.wall == w.id):
+                    c = (w.a[0] + (w.b[0] - w.a[0]) / L * o.offset, w.a[1] + (w.b[1] - w.a[1]) / L * o.offset)
+                    half = o.width / 2 * abs((w.b[0] - w.a[0]) / L * right[0] + (w.b[1] - w.a[1]) / L * right[1])
+                    z0 = lv.elevation + o.sill
+                    cv.setFillColor(colors.HexColor("#cfe3f3") if o.kind == "window" else colors.HexColor("#c8a27a"))
+                    cv.setLineWidth(0.5)
+                    _poly(cv, [T(u(c) - half, z0), T(u(c) + half, z0), T(u(c) + half, z0 + o.height), T(u(c) - half, z0 + o.height)], fill=True)
+        for r in roofs:  # roof profile
+            g = B.roof_geometry(r)
+            lv = b.levels[min(r.level, len(b.levels) - 1)]
+            ze = lv.elevation + lv.height
+            corners = [[r.x0 - r.overhang, r.y0 - r.overhang], [r.x1 + r.overhang, r.y1 + r.overhang]]
+            u0, u1 = sorted(u(p) for p in corners)
+            along_view = (r.ridge == "x") == (right[1] == 0)  # the ridge runs across the drawing
+            across = (r.y1 - r.y0 if r.ridge == "x" else r.x1 - r.x0) + 2 * r.overhang
+            cv.setFillColor(colors.HexColor("#8a4b38") if r.covering == "tiles" else colors.HexColor("#6b7884"))
+            cv.setLineWidth(0.8)
+            if r.kind == "flat":  # slab edge, or the parapet wall round the roof
+                _poly(cv, [T(u0, ze), T(u1, ze), T(u1, ze + max(0.3, r.parapet)), T(u0, ze + max(0.3, r.parapet))], fill=True)
+            elif r.kind == "shed":
+                if along_view:
+                    _poly(cv, [T(u0, ze), T(u1, ze), T(u1, ze + g["rise"]), T(u0, ze + g["rise"])], fill=True)
+                else:
+                    _poly(cv, [T(u0, ze), T(u1, ze), T(u1, ze + g["rise"])], fill=True)
+            elif along_view:
+                inset = across / 2 if r.kind == "hip" else 0
+                _poly(cv, [T(u0, ze), T(u1, ze), T(u1 - inset, ze + g["rise"]), T(u0 + inset, ze + g["rise"])], fill=True)
             else:
-                _poly(cv, [T(u0, ze), T(u1, ze), T(u1, ze + g["rise"])], fill=True)
-        elif along_view:
-            inset = across / 2 if r.kind == "hip" else 0
-            _poly(cv, [T(u0, ze), T(u1, ze), T(u1 - inset, ze + g["rise"]), T(u0 + inset, ze + g["rise"])], fill=True)
-        else:
-            _poly(cv, [T(u0, ze), T(u1, ze), T((u0 + u1) / 2, ze + g["rise"])], fill=True)
+                _poly(cv, [T(u0, ze), T(u1, ze), T((u0 + u1) / 2, ze + g["rise"])], fill=True)
     cv.setStrokeColor(colors.black)
     cv.setLineWidth(1.2)
     cv.line(*T(umin - 1, 0), *T(umax + 1, 0))  # ground line
@@ -244,7 +343,7 @@ def build_plans_pdf(d: Design, st: Stamp) -> bytes:
     ox = M + 30 + (box_w - (x1 - x0) * k) / 2
     oy = M + 70 + (box_h - (y1 - y0) * k) / 2
     T = lambda x, y: (ox + (x - x0) * k, oy + (y - y0) * k)  # noqa: E731
-    total = len(b.levels) + 1
+    total = len(b.levels) + 1 + (1 if b.landscape else 0)
     for lv_i, lv in enumerate(b.levels):
         _frame(cv, d, st, f"{lv.name} plan", lv_i + 1, total, n)
         _plan(cv, b, lv_i, T, k)
@@ -259,6 +358,9 @@ def build_plans_pdf(d: Design, st: Stamp) -> bytes:
         cv.setFont("Helvetica", 9)
         cv.drawString(M + 10, H - M - 18, f"Floor level {lv.elevation:+.2f} m   Height {lv.height:.2f} m   Floor area {area:,.1f} m²")
         cv.drawRightString(W - M - 10, H - M - 18, "N ↑")
+        cv.showPage()
+    if b.landscape:
+        _landscape_page(cv, d, st, b, total - 1, total)
         cv.showPage()
     _frame(cv, d, st, "Elevations", total, total, None)
     gw, gh = (W - 2 * M - 30) / 2, (H - 2 * M - 70) / 2

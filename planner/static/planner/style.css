@@ -54,6 +54,7 @@ aside#props { width: 330px; background: var(--panel); border: 1px solid var(--li
 @media (max-width: 1000px) { .grid2 { grid-template-columns: 1fr; } .maprow { flex-direction: column; height: auto; } #map { flex: none; height: 60vh; min-height: 320px; } aside#props { width: auto; } header .hproj select { width: auto; flex: 1; min-width: 0; } header .hproj { flex: 1 1 100%; border: 0; padding: 0; order: 5; } }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
 .form { display: grid; gap: 6px; }
+.form[hidden] { display: none; }
 .form label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); }
 .form label.inline { display: flex; align-items: center; gap: 6px; }
 .muted { color: var(--muted); font-size: 12px; }
@@ -448,3 +449,11 @@ dialog.sharedlg::backdrop { background: rgba(10,20,35,.45); }
 
 /* sector: fibre-only tools are hidden for water, pipelines, electricity and sanitation projects */
 [data-fibre-only][hidden], [data-tab][hidden], [data-network-only][hidden], [data-construction-only][hidden] { display: none !important; }
+
+/* AI assistant: changes it proposes, made only when the planner presses Apply */
+.aichanges { margin-top: 8px; padding: 8px 10px; border: 1px solid #b9d3ee; border-left: 3px solid #1f6fbf; border-radius: 6px; background: #f3f8fd; font-size: 12.5px; }
+.aichanges ul { margin: 4px 0 6px 16px; padding: 0; }
+.aiacts { display: flex; gap: 6px; }
+.aiacts button { font-size: 12px; padding: 4px 10px; }
+.aidone { color: #1d7a3a; font-weight: 600; }
+.aidone.muted { color: var(--muted); font-weight: 400; }

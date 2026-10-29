@@ -30,6 +30,7 @@ urlpatterns = [
     path(f"{P}/allocate", views.allocate),
     path(f"{P}/auto-design", views.auto_design),
     path(f"{P}/ai-chat", views.ai_chat),
+    path(f"{P}/ai-apply", views.ai_apply),
     path(f"{P}/apply-standard", views.apply_standard),
     path(f"{P}/apply-sector", views.apply_sector),
     path(f"{P}/building/generate", views.building_generate),

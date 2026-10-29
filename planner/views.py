@@ -815,7 +815,8 @@ def ai_chat(request, pid):
     """One assistant answer about the project: the conversation so far plus a summary of the project go to Groq."""
     from django.core.cache import cache
     from ftth import assistant
-    p = _project(request, pid, edit=False)  # viewers may ask too: the assistant never changes the design
+    p = _project(request, pid, edit=False)  # viewers may ask too; only editors get changes to apply
+    can_edit = Project.objects.editable_by(request.user).filter(pk=p.pk).exists()
     key = f"ai-chat:{request.user.pk}"
     if cache.get(key, 0) >= AI_CHAT_PER_10_MIN:
         raise ApiError(429, "Too many questions in a short time: please wait a few minutes")
@@ -831,11 +832,32 @@ def ai_chat(request, pid):
         messages = _body(request).get("messages")
     try:
         attached = assistant.attachment_text(upload.name, upload.read(), _vision_config()) if upload else None
-        answer = assistant.chat(p.design, messages, _chat_config(), attached)
+        answer = assistant.chat(p.design, messages, _chat_config(), attached, can_edit=can_edit)
     except assistant.AssistantError as e:
         msg = str(e)
         raise ApiError(502 if msg.startswith(("Could not reach", "The AI service")) or " from the " in msg else 400, msg)
-    return JsonResponse({"answer": answer, "attachment": attached or ""})
+    actions, changes = [], []
+    if can_edit:  # a proposal is checked on a copy now, and only made when the planner presses Apply
+        from ftth import ai_edits
+        answer, actions, changes = ai_edits.proposal(p.design, answer)
+    return JsonResponse({"answer": answer, "attachment": attached or "", "actions": actions, "changes": changes})
+
+
+@api("POST")
+def ai_apply(request, pid):
+    """Make the changes the assistant proposed, after the planner pressed Apply (Undo takes them back, as any edit)."""
+    from ftth import ai_edits
+    actions = _body(request).get("actions")
+
+    def run(d):
+        if d.info.design_status == "approved":
+            raise ApiError(409, "The design is approved: return it to draft before changing it")
+        try:
+            return ai_edits.apply(d, actions)
+        except ai_edits.EditError as e:
+            raise ApiError(400, str(e))
+    st, done = _operate(request, pid, run)
+    return JsonResponse(st | {"result": done})
 
 
 @api("GET")

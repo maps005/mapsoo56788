@@ -2,8 +2,8 @@
 
 Each question goes to Groq together with a short summary of the project: counts, cable lengths, BOQ total,
 QA issues, the design rules, and what the trained Photo AI model found on the survey photos. Raw coordinates,
-personal names from the home list and photos themselves are not sent. The assistant only advises; it never
-changes the design.
+personal names from the home list and photos themselves are not sent. For planners who may edit the project the
+assistant can also propose changes (ftth/ai_edits.py); they are only made when the planner presses Apply.
 """
 from __future__ import annotations
 
@@ -96,6 +96,9 @@ def project_context(d: Design) -> str:
             "levels": [{"name": lv.name, "elevation_m": lv.elevation, "height_m": lv.height} for lv in b.levels][:60]
                       if b else [],
             "spec": b.spec.model_dump() if b else None,
+            "footprint": _footprint_ctx(b) if b else None,
+            "landscape": [{"id": x.id, "kind": x.kind, "points": x.points[:8], "note": x.note}
+                          for x in b.landscape][:40] if b else [],
             "boq_total": s["boq_total"],
             "top_boq_lines": [{"item": ln.description[:60], "qty": round(ln.qty, 1), "unit": ln.unit, "total": ln.total}
                               for ln in top],
@@ -132,6 +135,23 @@ def project_context(d: Design) -> str:
                      "issues_seen": photo_issues},
     }
     return json.dumps(ctx, default=str, separators=(",", ":"))
+
+
+def _footprint_ctx(b) -> dict | None:
+    """Where the building stands on its own plan (x east, y north, metres), so changes round it can be placed."""
+    from . import building as B
+    fp = B.footprint(b)
+    if not fp:
+        return None
+    x0, y0, x1, y1 = B._bbox(fp)
+    blocks = {}
+    for w in b.walls:
+        if w.level == 0 and w.kind == "external":
+            k = w.id.split("-")[0] if w.id.startswith("B") and "-" in w.id else "main"
+            blocks.setdefault(k, []).extend([w.a, w.b])
+    return {"box": [round(v, 2) for v in (x0, y0, x1, y1)],
+            "ground_blocks": {k: [round(v, 2) for v in B._bbox(pts)] for k, pts in blocks.items()},
+            "entrances": [[round(v, 2) for v in p] for p in B._ground_doors(b)][:20]}
 
 
 def clean_messages(messages) -> list[dict]:
@@ -202,14 +222,20 @@ def attachment_text(name: str, data: bytes, vision_cfg=None) -> str:
     return f"Attached file '{name}'" + (" (first part only)" if cut else "") + ":\n" + text[:MAX_ATTACHED_CHARS]
 
 
-def chat(d: Design, messages, cfg: Config, attachment: str | None = None) -> str:
+def chat(d: Design, messages, cfg: Config, attachment: str | None = None, can_edit: bool = False) -> str:
+    """The model's answer. can_edit: the planner may change the project, so the model is told how to propose
+    changes (an actions block the caller turns into an Apply button)."""
     if not cfg.enabled:
         raise AssistantError("The AI assistant is not set up on this server: add AI_CHAT_KEY (a Groq API key) to its environment variables")
+    from . import ai_edits
     convo = clean_messages(messages)
+    system = _system(d)
+    if can_edit:
+        system = system.replace(" You cannot change the design yourself.", "") + "\n" + ai_edits.help_text(d)
     if attachment:  # the file goes with the latest question
         convo[-1]["content"] += "\n\n" + attachment
-    body = {"model": cfg.model, "temperature": 0.3, "max_tokens": 900,
-            "messages": [{"role": "system", "content": _system(d) + "\n\nProject summary (JSON):\n" + project_context(d)}]
+    body = {"model": cfg.model, "temperature": 0.3, "max_tokens": 1400,
+            "messages": [{"role": "system", "content": system + "\n\nProject summary (JSON):\n" + project_context(d)}]
             + convo}
     req = urllib.request.Request(cfg.url, data=json.dumps(body).encode(), method="POST",
                                  headers={"Content-Type": "application/json", "Authorization": f"Bearer {cfg.key}",

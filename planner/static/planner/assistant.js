@@ -1,6 +1,7 @@
 "use strict";
 // AI assistant: a chat panel that asks the Groq model about the open project. The server adds a summary of the
-// project and the trained Photo AI model's findings; the conversation lives in this page only.
+// project and the trained Photo AI model's findings; the conversation lives in this page only. For planners who
+// may edit, an answer can carry proposed changes: they are listed under it and made only when Apply is pressed.
 (() => {
   const panel = $("#aiPanel"), log = $("#aiLog"), input = $("#aiInput"), send = $("#aiSend");
   const chats = {};  // project id -> [{role, content}]
@@ -20,6 +21,7 @@
     "Check the floor-to-floor heights, stairs and headroom",
     "Which BOQ lines cost the most, and can they be reduced?",
     "What should a structural engineer check in this design?",
+    "Add flower beds and trees round the compound",
   ];
 
   // answers are shown as escaped text with a small markdown subset: **bold**, *italic*, `code`, headings,
@@ -68,8 +70,34 @@
     return html;
   }
 
-  // table controls inside answers
+  function changesCard(m, i) {  // what the assistant proposes to change, with Apply / Dismiss
+    if (!m.actions?.length) return "";
+    const state = m.applied ? `<div class="aidone">&#10003; Applied${m.result?.length ? `: ${esc(m.result.join("; "))}` : ""}. Press Undo (Ctrl+Z) to take it back.</div>`
+      : m.dismissed ? `<div class="aidone muted">Dismissed</div>`
+      : `<div class="aiacts"><button type="button" class="ok" data-apply="${i}">Apply ${m.actions.length > 1 ? `these ${m.actions.length} changes` : "this change"}</button>
+         <button type="button" data-dismiss="${i}">Dismiss</button></div>`;
+    return `<div class="aichanges"><b>Proposed change${m.actions.length > 1 ? "s" : ""} to the project</b>
+      <ul>${m.changes.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>${state}</div>`;
+  }
+
+  async function applyChanges(i) {
+    const m = (chats[S.pid] || [])[i];
+    if (!m || m.applied || busy) return;
+    busy = true; render();
+    try {
+      const st = await serverOp(`/api/projects/${S.pid}/ai-apply`, jsonBody({ actions: m.actions }));
+      m.applied = true; m.result = st.result;
+      toast("Changes applied");
+      if (typeof renderBuilding === "function" && isConstruction() && BLD.renderer) renderBuilding(false);
+    } catch (e) { toast(e.message, 8000); }
+    finally { busy = false; render(); }
+  }
+
+  // table controls and proposed changes inside answers
   log.addEventListener("click", (e) => {
+    const ap = e.target.closest("[data-apply]"), dis = e.target.closest("[data-dismiss]");
+    if (ap) return applyChanges(+ap.dataset.apply);
+    if (dis) { const m = (chats[S.pid] || [])[+dis.dataset.dismiss]; if (m) { m.dismissed = true; render(); } return; }
     const fold = e.target.closest("[data-tfold]"), more = e.target.closest("[data-tmore]");
     if (fold) {
       const t = fold.closest(".aitable"), shut = t.classList.toggle("folded");
@@ -98,7 +126,7 @@
       log.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => ask(b.dataset.q)));
       return;
     }
-    log.innerHTML = msgs.map((m) => `<div class="aimsg ${m.role}${m.error ? " err" : ""}">${m.file ? `<span class="aifile">&#128206; ${esc(m.file)}</span>` : ""}${m.role === "user" ? esc(m.content) : format(m.content)}</div>`).join("")
+    log.innerHTML = msgs.map((m, i) => `<div class="aimsg ${m.role}${m.error ? " err" : ""}">${m.file ? `<span class="aifile">&#128206; ${esc(m.file)}</span>` : ""}${m.role === "user" ? esc(m.content) : format(m.content) + changesCard(m, i)}</div>`).join("")
       + (busy ? `<div class="aimsg assistant typing"><span></span><span></span><span></span></div>` : "");
     log.scrollTop = log.scrollHeight;
   }
@@ -117,7 +145,8 @@
     const mine = { role: "user", content: q, file: file ? file.name : "" };
     msgs.push(mine);
     const history = msgs.filter((m) => !m.error)
-      .map((m) => ({ role: m.role, content: m.extra ? `${m.content}\n\n${m.extra}` : m.content }));
+      .map((m) => ({ role: m.role, content: (m.extra ? `${m.content}\n\n${m.extra}` : m.content)
+        + (m.actions?.length ? `\n\n[Proposed changes: ${m.changes.join("; ")} - ${m.applied ? "applied by the planner" : m.dismissed ? "dismissed" : "not applied yet"}]` : "") }));
     let opts;
     if (file) {  // the file goes with this question; its findings are kept for follow-up questions
       const fd = new FormData();
@@ -130,7 +159,7 @@
     try {
       const r = await api(`/api/projects/${S.pid}/ai-chat`, opts);
       if (r.attachment) mine.extra = r.attachment;
-      msgs.push({ role: "assistant", content: r.answer });
+      msgs.push({ role: "assistant", content: r.answer, actions: r.actions || [], changes: r.changes || [] });
     } catch (e) {
       msgs.push({ role: "assistant", content: e.message, error: true });
     } finally {

@@ -43,7 +43,9 @@ function mats() {
   const m = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0, ...o });
   Object.assign(MAT, { wall: m(0xe8e4dc), wallInt: m(0xf4f1ea), slab: m(0xb9bec4), glass: m(0x8fc4e8, { transparent: true, opacity: 0.45 }),
     door: m(0x9a6a3f), roofSheet: m(0x5e6b78, { side: THREE.DoubleSide }), roofTile: m(0x8a4b38, { side: THREE.DoubleSide }),
-    stair: m(0xa9adb3), column: m(0x8d949c), cut: m(0x3b4148), sel: m(0x00b7ff, { emissive: 0x003a55 }), ghost: m(0x00b7ff, { transparent: true, opacity: 0.35 }) });
+    stair: m(0xa9adb3), column: m(0x8d949c), cut: m(0x3b4148), sel: m(0x00b7ff, { emissive: 0x003a55 }), ghost: m(0x00b7ff, { transparent: true, opacity: 0.35 }),
+    soil: m(0x6b4a2f), flowers: m(0xd8508a), lawn: m(0x6fae45), shrubs: m(0x3f7d3a), paving: m(0xb7b2a8), hedge: m(0x2f6b2f),
+    trunk: m(0x6b4a2f), canopy: m(0x3f8f3f) });
   return MAT;
 }
 let UNIT_BOX = null;  // one 1 m box, scaled, for every wall piece, step and column: a tower has thousands of them
@@ -138,6 +140,34 @@ function stairMeshes(b, st, group) {
   }
 }
 
+// landscaping in the compound: beds, lawns and paving as low slabs (round their outline), hedges as low walls,
+// trees as a trunk and a crown
+function landscapeMeshes(b, g) {
+  const M = mats();
+  const slab = (pts, z0, z1, mat, inset = 0) => {
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    const x0 = Math.min(...xs) + inset, x1 = Math.max(...xs) - inset, y0 = Math.min(...ys) + inset, y1 = Math.max(...ys) - inset;
+    const m = new THREE.Mesh(unitBox(), mat);
+    m.scale.set(Math.max(x1 - x0, 0.05), z1 - z0, Math.max(y1 - y0, 0.05));
+    m.position.set((x0 + x1) / 2, (z0 + z1) / 2, -(y0 + y1) / 2);
+    return m;
+  };
+  for (const x of b.landscape || []) {
+    const P = x.points;
+    if (x.kind === "flower_bed") { g.add(tag(slab(P, 0, 0.2, M.soil), "landscape", x.id)); g.add(tag(slab(P, 0.2, 0.4, M.flowers, 0.15), "landscape", x.id)); }
+    else if (x.kind === "shrub_bed") { g.add(tag(slab(P, 0, 0.2, M.soil), "landscape", x.id)); g.add(tag(slab(P, 0.2, 0.9, M.shrubs, 0.2), "landscape", x.id)); }
+    else if (x.kind === "lawn") g.add(tag(slab(P, 0, 0.05, M.lawn), "landscape", x.id));
+    else if (x.kind === "paving") g.add(tag(slab(P, 0, 0.08, M.paving), "landscape", x.id));
+    else if (x.kind === "hedge") for (let i = 1; i < P.length; i++) g.add(tag(boxAlong(P[i - 1], P[i], 0, Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]), 0, 1.2, 0.6, M.hedge), "landscape", x.id));
+    else if (x.kind === "tree") {
+      const [tx, ty] = P[0], trunk = new THREE.Mesh(unitBox(), M.trunk), crown = new THREE.Mesh(unitBox(), M.canopy);
+      trunk.scale.set(0.3, 2.6, 0.3); trunk.position.set(tx, 1.3, -ty);
+      crown.scale.set(3, 2.6, 3); crown.position.set(tx, 3.6, -ty); crown.rotation.y = Math.PI / 4;
+      g.add(tag(trunk, "landscape", x.id)); g.add(tag(crown, "landscape", x.id));
+    }
+  }
+}
+
 function buildingGroup(b, maxLevel, only = null) {  // only: a plan of that one level (no roof, nothing above)
   const g = new THREE.Group(), M = mats();
   const show = (lv) => only === null ? lv <= maxLevel : lv === only;
@@ -156,6 +186,7 @@ function buildingGroup(b, maxLevel, only = null) {  // only: a plan of that one 
     g.add(tag(m, "column", c.id));
   }
   if (only === null && maxLevel >= b.levels.length - 1) for (const r of b.roofs) { const m = roofMesh(b, r); if (m) g.add(m); }
+  if (only === null || only === 0) landscapeMeshes(b, g);
   return g;
 }
 
@@ -165,7 +196,7 @@ function buildingGroup(b, maxLevel, only = null) {  // only: a plan of that one 
 function batchGroup(g) {
   const byMat = new Map(), out = new THREE.Group();
   g.updateMatrixWorld(true);
-  for (const o of g.children) if (o.isMesh) (byMat.get(o.material) || byMat.set(o.material, []).get(o.material)).push(o);
+  g.traverse((o) => { if (o.isMesh) (byMat.get(o.material) || byMat.set(o.material, []).get(o.material)).push(o); });  // parapets are a group
   const v = new THREE.Vector3(), nm = new THREE.Matrix3();
   for (const [mat, list] of byMat) {
     const geos = list.map((o) => o.geometry.index ? o.geometry.toNonIndexed() : o.geometry);
@@ -205,7 +236,7 @@ function setupScene() {
   BLD.renderer.setPixelRatio(window.devicePixelRatio || 1);
   box.appendChild(BLD.renderer.domElement);
   BLD.scene = new THREE.Scene();
-  BLD.scene.background = new THREE.Color(0xdfe7ef);
+  BLD.scene.background = new THREE.Color(0xe9eef3);
   BLD.scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 0.85));
   const sun = new THREE.DirectionalLight(0xffffff, 0.75);
   sun.position.set(30, 50, 20);
@@ -214,8 +245,18 @@ function setupScene() {
   BLD.camPlan = new THREE.OrthographicCamera(-20, 20, 20, -20, -1000, 1000);
   BLD.controls = new THREE.OrbitControls(BLD.cam3d, BLD.renderer.domElement);
   BLD.controls.addEventListener("change", draw);
-  BLD.grid = new THREE.GridHelper(200, 200, 0x9aa7b4, 0xc5cdd6);
+  // the ground: a soft site surface with a faint 1 m grid (for drawing) and stronger 5 m lines
+  BLD.ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ color: 0xdfe5d8, roughness: 1 }));
+  BLD.ground.rotation.x = -Math.PI / 2;
+  BLD.ground.position.y = -0.02;
+  BLD.scene.add(BLD.ground);
+  const fine = new THREE.GridHelper(200, 200, 0xc9d0c4, 0xc9d0c4), major = new THREE.GridHelper(200, 40, 0xaeb8ad, 0xaeb8ad);
+  for (const g of [fine, major]) { g.material.transparent = true; g.material.opacity = g === fine ? 0.35 : 0.6; }
+  BLD.grid = new THREE.Group();
+  BLD.grid.add(fine, major);
   BLD.scene.add(BLD.grid);
+  BLD.labels = new THREE.Group();
+  BLD.scene.add(BLD.labels);
   BLD.preview = new THREE.Group();
   BLD.scene.add(BLD.preview);
   new ResizeObserver(() => { resize(); draw(); }).observe(box);
@@ -234,7 +275,7 @@ function resize() {
 }
 function draw() { if (BLD.renderer) BLD.renderer.render(BLD.scene, camera()); }
 function extent(b) {
-  const pts = b.walls.flatMap((w) => [w.a, w.b]);
+  const pts = b.walls.flatMap((w) => [w.a, w.b]).concat((b.landscape || []).flatMap((x) => x.points));
   if (!pts.length) return { cx: 0, cy: 0, size: 20, top: 3 };
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
   const top = Math.max(...b.levels.map((l) => l.elevation + l.height));
@@ -246,10 +287,17 @@ function fit() {
   BLD.cam3d.position.copy(t).addScaledVector(new THREE.Vector3(1.1, 0.9, 1.3).normalize(), r / Math.sin(BLD.cam3d.fov * Math.PI / 360));
   BLD.controls.target.copy(t);
   const elev = lvlOf(S.D.building, BLD.level).elevation;
-  BLD.camPlan.position.set(e.cx, elev + 200, -e.cy);
+  // the plan: the level's walls fill the view (with room round them), whatever its shape
+  const lw = S.D.building.walls.filter((w) => w.level === BLD.level).flatMap((w) => [w.a, w.b]);
+  const px = lw.length ? lw.map((q) => q[0]) : [e.cx - e.size / 2, e.cx + e.size / 2];
+  const py = lw.length ? lw.map((q) => q[1]) : [e.cy - e.size / 2, e.cy + e.size / 2];
+  const pcx = (Math.min(...px) + Math.max(...px)) / 2, pcy = (Math.min(...py) + Math.max(...py)) / 2;
+  const box = $("#bld3d"), aspect = (box.clientWidth || 600) / (box.clientHeight || 420);
+  BLD.camPlan.position.set(pcx, elev + 200, -pcy);
   BLD.camPlan.up.set(0, 0, -1);
-  BLD.camPlan.lookAt(e.cx, elev, -e.cy);
-  const k = e.size * 0.7;
+  BLD.camPlan.lookAt(pcx, elev, -pcy);
+  if (BLD.plan) BLD.controls.target.set(pcx, elev, -pcy);
+  const k = Math.max((Math.max(...py) - Math.min(...py)) / 2, (Math.max(...px) - Math.min(...px)) / 2 / aspect, 4) * 1.15;
   Object.assign(BLD.camPlan, { top: k, bottom: -k });
   resize();
   BLD.controls.update();
@@ -262,6 +310,7 @@ function setPlan(on) {
   BLD.controls.enableRotate = !on;
   BLD.controls.mouseButtons.LEFT = on ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
   if (on) { const e = extent(S.D.building); BLD.controls.target.set(e.cx, lvlOf(S.D.building, BLD.level).elevation, -e.cy); }
+  BLD.grid.children[0].visible = !on;  // the plan keeps the 5 m lines only
   rebuild(); fit();
 }
 
@@ -276,8 +325,42 @@ function rebuild() {
   }
   BLD.root = batchGroup(g);
   BLD.scene.add(BLD.root);
+  roomLabels(b);
   BLD.grid.position.y = lvlOf(b, BLD.level).elevation + 0.002;
   draw();
+}
+
+// room names and areas on the plan of a level (sprites drawn over everything, sized to their room)
+const LABELS = new Map();
+function labelTexture(name, area) {
+  const key = `${name}|${area}`;
+  if (LABELS.has(key)) return LABELS.get(key);
+  const c = document.createElement("canvas");
+  c.width = 512; c.height = 160;
+  const x = c.getContext("2d");
+  x.textAlign = "center"; x.fillStyle = "#1f2933";
+  let size = 62;
+  const text = name === "Corridor" ? name : name.toUpperCase();
+  do { x.font = `700 ${size}px Inter, Arial, sans-serif`; size -= 4; } while (x.measureText(text).width > 500 && size > 20);
+  x.fillText(text, 256, area ? 72 : 100);
+  if (area) { x.font = "400 44px Inter, Arial, sans-serif"; x.fillStyle = "#5d6874"; x.fillText(`${area} m²`, 256, 132); }
+  const t = new THREE.CanvasTexture(c);
+  LABELS.set(key, t);
+  return t;
+}
+function roomLabels(b) {
+  BLD.labels.clear();
+  if (!BLD.plan) return;
+  const lv = lvlOf(b, BLD.level);
+  for (const r of b.rooms || []) {
+    if (r.level !== BLD.level || r.name === "Stair") continue;
+    const w = Math.max(1.2, Math.min(r.w || 4, 6)) * 0.9;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture(r.name, r.area), depthTest: false, transparent: true }));
+    sp.scale.set(w, w * 160 / 512, 1);
+    sp.position.set(r.x, lv.elevation + lv.height + 1, -r.y);
+    sp.renderOrder = 10;
+    BLD.labels.add(sp);
+  }
 }
 
 // ---- picking and tools -----------------------------------------------------------------------------------
@@ -358,13 +441,14 @@ function bindPointer(cv) {
 function selObj() {
   const b = S.D.building, s = BLD.sel;
   if (!b || !s) return null;
-  return ({ wall: b.walls, opening: b.openings, column: b.columns, stair: b.stairs, slab: b.slabs, roof: b.roofs }[s.type] || []).find((x) => x.id === s.id);
+  return ({ wall: b.walls, opening: b.openings, column: b.columns, stair: b.stairs, slab: b.slabs, roof: b.roofs, landscape: b.landscape || [] }[s.type] || []).find((x) => x.id === s.id);
 }
 function dragSelection(drag, p) {  // move by the dragged distance, on the 0.1 m grid
   const o = selObj(), was = JSON.parse(drag.snapshot);
   if (!o || !drag.start) return;
   const dx = Math.round((p[0] - drag.start[0]) * 10) / 10, dy = Math.round((p[1] - drag.start[1]) * 10) / 10;
   if (BLD.sel.type === "wall") { o.a = [was.a[0] + dx, was.a[1] + dy]; o.b = [was.b[0] + dx, was.b[1] + dy]; }
+  else if (BLD.sel.type === "landscape") o.points = was.points.map((q) => [q[0] + dx, q[1] + dy]);
   else if (BLD.sel.type === "opening") {  // along its wall
     const w = S.D.building.walls.find((x) => x.id === o.wall), L = wallLen(w) || 1;
     const s = ((p[0] - w.a[0]) * (w.b[0] - w.a[0]) + (p[1] - w.a[1]) * (w.b[1] - w.a[1])) / L;
@@ -424,7 +508,7 @@ function toolClick(e) {
 function deleteSel() {
   const b = S.D.building, s = BLD.sel;
   if (!b || !s) return toast("Select something to delete");
-  const coll = { wall: "walls", opening: "openings", column: "columns", stair: "stairs", slab: "slabs", roof: "roofs" }[s.type];
+  const coll = { wall: "walls", opening: "openings", column: "columns", stair: "stairs", slab: "slabs", roof: "roofs", landscape: "landscape" }[s.type];
   b[coll] = b[coll].filter((x) => x.id !== s.id);
   if (s.type === "wall") b.openings = b.openings.filter((o) => o.wall !== s.id);  // its doors and windows go with it
   BLD.sel = null;
@@ -442,6 +526,7 @@ const PROPS = {
   slab: [["thickness", "number"]],
   roof: [["kind", ["gable", "hip", "shed", "flat"]], ["pitch", "number"], ["overhang", "number"], ["ridge", ["x", "y"]],
     ["covering", ["iron sheets", "tiles", "concrete"]]],
+  landscape: [["kind", ["flower_bed", "lawn", "shrub_bed", "paving", "hedge", "tree"]]],
 };
 function renderBldProps() {
   const box = $("#bldProps"), o = selObj(), b = S.D.building;
@@ -477,7 +562,8 @@ function renderBldProps() {
 }
 
 // ---- auto design, levels, roof ---------------------------------------------------------------------------
-const AUTO = [["width", "Width east-west (m)", 12], ["depth", "Depth north-south (m)", 9], ["floors", "Floors", 1], ["floor_height", "Floor to floor (m)", 3],
+const AUTO = [["use", "Building use (names the rooms)", ["general", "house", "office", "hospital", "school", "apartments"]],
+  ["corridor", "Corridor (rooms off it)", ["auto", "none", "1.5", "1.8", "2.4", "3.0"]], ["width", "Width east-west (m)", 12], ["depth", "Depth north-south (m)", 9], ["floors", "Floors", 1], ["floor_height", "Floor to floor (m)", 3],
   ["rooms_x", "Rooms across", 2], ["rooms_y", "Rooms deep", 2], ["external_wall", "External wall (m)", 0.2], ["internal_wall", "Internal wall (m)", 0.15],
   ["material", "Walls", ["block", "brick", "stone", "concrete"]], ["window_spacing", "A window every (m)", 3], ["window_width", "Window width (m)", 1.2],
   ["window_height", "Window height (m)", 1.2], ["window_style", "Windows", ["casement", "sliding", "fixed", "hung"]], ["door_style", "Main door", ["single", "double", "sliding", "arched"]],
@@ -504,6 +590,8 @@ $("#bldGenerate").onclick = async () => {
     if (!add && i.closest("#bldBlock")) return;
     body[i.dataset.ap] = i.type === "checkbox" ? i.checked : i.tagName === "SELECT" ? i.value : +i.value;
   });
+  if (body.corridor === "auto") delete body.corridor;  // 1.8 m (2.4 m in a hospital), none for a house
+  else if (body.corridor === "none") body.corridor = 0;
   try {
     let st = await serverOp(`/api/projects/${S.pid}/building/generate`, jsonBody(body));
     // a design started from a 3D model also gets the parts found on top of it (a tower, stair towers, plant rooms)

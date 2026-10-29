@@ -146,3 +146,26 @@ def test_a_construction_company_gets_a_building_planner():
     assert "building design" in assistant._system(p) and "FTTH" not in assistant._system(p)
     ctx = assistant.project_context(p)
     assert '"floors":2' in ctx and "homepasses" not in ctx
+
+
+def test_bigger_buildings_get_a_corridor_with_rooms_off_it():
+    d = house(width=60, depth=18, floors=6, floor_height=4.0, rooms_x=14, use="hospital", roof="flat")
+    b = d.building
+    names = [r.name for r in b.rooms if r.level == 1]
+    assert names.count("Ward") >= 20 and "Corridor" in names and "Lift and lobby" in names and "Nurse station" in names
+    assert "Reception" in [r.name for r in b.rooms if r.level == 0]
+    # every room on a floor opens onto the corridor: a door in a corridor wall per room
+    corr = [w for w in b.walls if w.level == 1 and w.kind == "internal" and abs(w.a[1] - w.b[1]) < 1e-6
+            and abs(w.b[0] - w.a[0]) > 50]
+    assert len(corr) == 2
+    doors = sum(1 for o in b.openings if o.kind == "door" and o.wall in {w.id for w in corr})
+    assert doors == len([r for r in b.rooms if r.level == 1 and r.name != "Corridor"])
+    assert sum(1 for s in b.stairs if s.level == 0) == 2  # two ways out of a 60 m block
+    assert not [i for i in B.check(b) if i["severity"] in ("error", "warning")]
+    # small buildings and houses stay a few rooms opening into each other
+    small = house(width=12, depth=9, floors=1).building
+    assert "Corridor" not in [r.name for r in small.rooms]
+    home = house(width=20, depth=10, floors=2, use="house").building
+    assert "Corridor" not in [r.name for r in home.rooms] and "Living room" in [r.name for r in home.rooms]
+    pdf = PdfReader(io.BytesIO(plans.build_plans_pdf(d, stamp(d, 1))))
+    assert "WARD" in pdf.pages[1].extract_text() and "Corridor" in pdf.pages[1].extract_text()

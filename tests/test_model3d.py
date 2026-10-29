@@ -141,8 +141,8 @@ def test_a_tower_block_is_added_on_a_podium():
     assert tower and min(w.level for w in tower) == 2 and max(w.level for w in tower) == 7
     xs = [p[0] for w in tower for p in (w.a, w.b)]
     assert min(xs) == pytest.approx(12, abs=0.3) and max(xs) == pytest.approx(28, abs=0.3)
-    assert not any(o.kind == "door" and b.walls[[w.id for w in b.walls].index(o.wall)].level == 2
-                   and o.wall.startswith("B2-") and o.sill == 0 and o.style != "single" for o in b.openings)
+    outside = {w.id for w in b.walls if w.id.startswith("B2-") and w.level == 2 and w.kind == "external"}
+    assert not any(o.kind == "door" and o.wall in outside for o in b.openings)  # no front door up on the podium
     assert len({w.id for w in b.walls}) == len(b.walls)  # ids stay unique
     wing = B.add_block(b, B.AutoParams(width=10, depth=10, floors=1, roof="hip", x=40, y=0))
     assert len(wing.roofs) == 3 and any(w.id.startswith("B3-") for w in wing.walls)
