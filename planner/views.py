@@ -222,10 +222,17 @@ def _people(p: Project) -> list[dict]:
     return out
 
 
+def _version(p: Project) -> str:
+    """The project's version token: the hash stored when it was last saved. Saves compare against this same
+    stored value, so a newer data model (new fields with defaults change content_hash) never makes an
+    unchanged project look as if someone else had saved it."""
+    return p.data_hash or p.design.content_hash()
+
+
 def _state(request, p: Project, d: Design | None = None) -> dict:
     d = d or p.design
     issues = validate.validate(d)
-    h = d.content_hash()
+    h = _version(p)
     exports = {e.deliverable: e for e in p.exports.all()}
     part = {k: package.deliverable_hash(d, k) for k in package.DELIVERABLES}
     return {
@@ -259,7 +266,7 @@ def _commit(request, pid: str, base_hash: str, d: Design) -> Project:
     Long calculations run before this, so they never hold the database lock (SQLite allows one writer)."""
     with transaction.atomic():
         p = _project(request, pid, lock=True)
-        if p.data_hash != base_hash:
+        if _version(p) != base_hash:
             who = p.updated_by.get_username() if p.updated_by else "another user"
             raise ApiError(409, f"{who} saved changes to this project while this was running. "
                                 f"Reload to get the latest version, then run it again.", conflict=True)
@@ -379,7 +386,7 @@ def project(request, pid):
         raise ApiError(428, "Missing X-Base-Hash header (the hash of the version you edited)")
     # checks on a plain read; the short write transaction in _commit re-checks the version
     p = _project(request, pid)
-    if base != p.data_hash:
+    if base != _version(p):
         who = p.updated_by.get_username() if p.updated_by else "another user"
         raise ApiError(409, f"{who} saved changes to this project after you opened it. "
                             f"Reload to get the latest version, then reapply your change.", conflict=True)
@@ -405,7 +412,8 @@ def project(request, pid):
     if d.info.design_status == "approved":
         # approval covers exactly the approved revision; any later change returns the design to draft
         approved = p.revisions.filter(status="approved").first()
-        if not approved or approved.data_hash != d.content_hash():
+        # both sides read with the current data model: a stored hash from an older model would not compare
+        if not approved or Design.model_validate(approved.data).content_hash() != d.content_hash():
             d.info.design_status = "draft"
     p = _commit(request, pid, base, d)
     return JsonResponse(_state(request, p, d))
@@ -459,7 +467,7 @@ def find_people(request):
 def _operate(request, pid, fn):
     """Run fn on the saved design and save the result (fn runs outside the write lock)."""
     p = _project(request, pid)
-    base, d = p.data_hash, p.design
+    base, d = _version(p), p.design
     result = fn(d)
     p = _commit(request, pid, base, d)
     return _state(request, p, d), result
@@ -635,7 +643,7 @@ def record_revision(request, pid: str, status: str | None, note: str):
     if status not in (None, "draft", "in_review", "approved"):
         raise ApiError(400, "Unknown status")
     p = _project(request, pid)
-    base, d = p.data_hash, p.design
+    base, d = _version(p), p.design
     # approval checks (validation, BOQ) run before taking the write lock
     if status == "approved":
         if not p.can_approve(request.user):
@@ -655,7 +663,7 @@ def record_revision(request, pid: str, status: str | None, note: str):
         d.info.design_status = "in_review"  # only approvers can record an approved revision
     with transaction.atomic():
         p = _project(request, pid, lock=True)
-        if p.data_hash != base:
+        if _version(p) != base:
             raise ApiError(409, "The project changed while the revision was being checked. Reload and try again.",
                            conflict=True)
         p.set_design(d, request.user)
