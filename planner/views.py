@@ -159,8 +159,12 @@ def building_generate(request, pid):
     """Construction: design the building automatically from the brief (replaces the current building, keeping
     where it sits on the map)."""
     from ftth import building as B
+    body = _body(request)
+    mode = body.pop("mode", "replace")
+    if mode not in ("replace", "add"):
+        raise ApiError(400, "mode must be replace or add")
     try:
-        params = B.AutoParams.model_validate(_body(request))
+        params = B.AutoParams.model_validate(body)
     except ValidationError as e:
         er = e.errors(include_url=False)[0]
         raise ApiError(400, f"{'.'.join(str(x) for x in er.get('loc', []))}: {er.get('msg', 'invalid value')}")
@@ -169,12 +173,37 @@ def building_generate(request, pid):
         if d.info.design_status == "approved":
             raise ApiError(409, "The design is approved: return it to draft before redesigning the building")
         old = d.building
-        d.building = B.generate(params)
-        if old is not None:
-            d.building.origin, d.building.rotation, d.building.spec = old.origin, old.rotation, old.spec
+        if mode == "add":  # a wing, or a tower on a podium, added to the building
+            if old is None or not old.walls:
+                raise ApiError(400, "Design the first block first, then add wings or towers to it")
+            try:
+                d.building = B.add_block(old, params)
+            except ValueError as e:
+                raise ApiError(400, str(e))
+        else:
+            d.building = B.generate(params)
+            if old is not None:
+                d.building.origin, d.building.rotation, d.building.spec = old.origin, old.rotation, old.spec
         return {"walls": len(d.building.walls), "openings": len(d.building.openings), "levels": len(d.building.levels)}
     st, res = _operate(request, pid, run)
     return JsonResponse(st | {"result": res})
+
+
+@api("POST")
+def building_measure(request, pid):
+    """Construction: measure an uploaded 3D model (.obj / .3ds) and suggest a brief. Nothing is stored."""
+    from ftth import model3d
+    _project(request, pid, edit=False)
+    f = request.FILES.get("file")
+    if f is None:
+        raise ApiError(400, "Upload a 3D model (.obj or .3ds)")
+    if f.size > 60 * 1024 * 1024:
+        raise ApiError(400, "3D models must be smaller than 60 MB")
+    try:
+        return JsonResponse(model3d.measure(f.name, f.read(), unit=request.POST.get("unit") or None,
+                                            up=request.POST.get("up") or None))
+    except model3d.ModelError as e:
+        raise ApiError(400, str(e))
 
 
 @api("GET")

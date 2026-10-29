@@ -74,6 +74,7 @@ class Roof(BaseModel):
     overhang: float = Field(default=0.6, ge=0, le=3)
     ridge: Literal["x", "y"] = "x"                    # the ridge runs along x or y (shed: falls across it)
     covering: Literal["iron sheets", "tiles", "concrete"] = "iron sheets"
+    parapet: float = Field(default=0.0, ge=0, le=3)  # flat roofs: wall around the roof edge, m high (0 = none)
 
 
 class Stair(BaseModel):
@@ -113,12 +114,12 @@ class Building(BaseModel):
     rotation: float = 0.0                 # degrees the building is turned on the map (counter-clockwise)
     # the plot boundary is the project's boundary on the map (ProjectInfo.boundary), drawn on the Site plan
     levels: list[Level] = Field(default_factory=lambda: [Level()], min_length=1, max_length=60)
-    walls: list[Wall] = Field(default_factory=list, max_length=5000)
-    openings: list[Opening] = Field(default_factory=list, max_length=5000)
+    walls: list[Wall] = Field(default_factory=list, max_length=10000)
+    openings: list[Opening] = Field(default_factory=list, max_length=10000)
     slabs: list[Slab] = Field(default_factory=list, max_length=500)
     roofs: list[Roof] = Field(default_factory=list, max_length=100)
     stairs: list[Stair] = Field(default_factory=list, max_length=100)
-    columns: list[Column] = Field(default_factory=list, max_length=2000)
+    columns: list[Column] = Field(default_factory=list, max_length=5000)
     spec: Spec = Field(default_factory=Spec)
 
     def wall(self, wid: str) -> Optional[Wall]:
@@ -198,8 +199,9 @@ def roof_geometry(r: Roof) -> dict:
     L, W = (r.x1 - r.x0) + 2 * r.overhang, (r.y1 - r.y0) + 2 * r.overhang
     along, across = (L, W) if r.ridge == "x" else (W, L)
     t = math.tan(math.radians(r.pitch)) if r.kind != "flat" else 0.0
-    if r.kind == "flat":
-        return {"plan": L * W, "area": L * W, "rise": 0.0, "ridge": 0.0, "eaves": 2 * (L + W), "hips": 0.0}
+    if r.kind == "flat":  # the parapet, if any, is the top of the building
+        return {"plan": L * W, "area": L * W, "rise": r.parapet, "ridge": 0.0, "eaves": 2 * (L + W), "hips": 0.0,
+                "parapet": r.parapet * 2 * ((r.x1 - r.x0) + (r.y1 - r.y0))}
     if r.kind == "shed":
         rise = across * t
         return {"plan": L * W, "area": L * W / math.cos(math.radians(r.pitch)), "rise": rise, "ridge": along,
@@ -237,6 +239,12 @@ class AutoParams(BaseModel):
     overhang: float = Field(default=0.6, ge=0, le=2)
     covering: Literal["iron sheets", "tiles", "concrete"] = "iron sheets"
     columns: bool = False                                  # a concrete frame: columns at the wall corners and junctions
+    parapet: float = Field(default=1.0, ge=0, le=3)        # flat roofs: parapet height (0 = none)
+    # adding a block to the building (a wing, or a tower on a podium): where its south-west corner goes and the
+    # floor it starts from (0 = on the ground; 2 = on top of a two-storey podium)
+    x: float = Field(default=0.0, ge=-500, le=500)
+    y: float = Field(default=0.0, ge=-500, le=500)
+    start_floor: int = Field(default=0, ge=0, le=59)
 
 
 def generate(p: AutoParams) -> Building:
@@ -319,9 +327,47 @@ def generate(p: AutoParams) -> Building:
     if p.roof == "flat":
         b.slabs.append(Slab(id="SR", level=p.floors, outline=[[0, 0], [W, 0], [W, D], [0, D]], thickness=0.15))
     b.roofs.append(Roof(id="R1", level=top, x0=0, y0=0, x1=W, y1=D, kind=p.roof, pitch=p.pitch if p.roof != "flat" else 0,
-                        overhang=p.overhang, ridge="x" if W >= D else "y",
-                        covering="concrete" if p.roof == "flat" else p.covering))
+                        overhang=p.overhang if p.roof != "flat" else 0, ridge="x" if W >= D else "y",
+                        covering="concrete" if p.roof == "flat" else p.covering,
+                        parapet=p.parapet if p.roof == "flat" else 0))
     return b
+
+
+def add_block(b: Building, p: AutoParams) -> Building:
+    """Add a block made to the brief to an existing building: a wing beside it, or a tower on top of a podium.
+    The block's south-west corner goes to (p.x, p.y) and its floors start at p.start_floor; floors the building
+    does not have yet are added. Where the block sits on a lower part, that part's roof becomes the floor."""
+    if p.start_floor > len(b.levels):
+        raise ValueError(f"start floor {p.start_floor}: the building has only {len(b.levels)} floor(s)")
+    new = generate(p.model_copy(update={"floors": p.floors}))
+    tag = 1 + max((int(r.id[1:].split("-")[0]) for r in b.roofs if r.id[1:].split("-")[0].isdigit()), default=1)
+    pre = f"B{tag}-"
+    s = p.start_floor
+    for k in range(p.floors):  # the floors this block needs
+        lv = s + k
+        if lv >= len(b.levels):
+            top = b.levels[-1]
+            b.levels.append(Level(name=f"Floor {lv}", elevation=round(top.elevation + top.height, 3),
+                                  height=p.floor_height, slab=top.slab))
+    sh = lambda pt: [round(pt[0] + p.x, 4), round(pt[1] + p.y, 4)]  # noqa: E731
+    for w in new.walls:
+        b.walls.append(w.model_copy(update={"id": pre + w.id, "level": w.level + s, "a": sh(w.a), "b": sh(w.b)}))
+    for o in new.openings:
+        b.openings.append(o.model_copy(update={"id": pre + o.id, "wall": pre + o.wall}))
+    if s > 0:  # a block on a podium has no front door: the main door belongs to the ground floor
+        first = {pre + w.id for w in new.walls if w.level == 0 and w.kind == "external"}
+        b.openings = [o for o in b.openings if not (o.wall in first and o.kind == "door")]
+    for sl in new.slabs:
+        lv = sl.level + s if sl.id != "SR" else s + p.floors
+        b.slabs.append(sl.model_copy(update={"id": pre + sl.id, "level": lv, "outline": [sh(q) for q in sl.outline]}))
+    for st in new.stairs:
+        b.stairs.append(st.model_copy(update={"id": pre + st.id, "level": st.level + s, "x": st.x + p.x, "y": st.y + p.y}))
+    for c in new.columns:
+        b.columns.append(c.model_copy(update={"id": pre + c.id, "level": c.level + s, "x": c.x + p.x, "y": c.y + p.y}))
+    for r in new.roofs:
+        b.roofs.append(r.model_copy(update={"id": f"R{tag}", "level": r.level + s, "x0": r.x0 + p.x, "y0": r.y0 + p.y,
+                                            "x1": r.x1 + p.x, "y1": r.y1 + p.y}))
+    return Building.model_validate(b.model_dump())
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -395,8 +441,13 @@ def quantities(b: Building) -> list[tuple[str, float, str]]:
         add("LINTEL", o.width + 0.3, "Over each opening, 150 mm bearing each side")
     for r in b.roofs:
         g = roof_geometry(r)
-        if r.kind == "flat":
-            continue  # a flat roof is its slab (above)
+        if r.kind == "flat":  # a flat roof is its slab (above), with its parapet if it has one
+            if g.get("parapet"):
+                mat = next((w.material for w in b.walls if w.kind == "external"), "block")
+                add(WALL_CODES[mat] + "-EXT", g["parapet"], f"Parapet walls {r.parapet:g} m high round the flat roof")
+                if sp.plaster:
+                    add("RENDER", 2 * g["parapet"], "Both faces of the parapet walls")
+            continue
         add(ROOF_CODES[r.covering], g["area"], f"{r.kind.capitalize()} roof covering at {r.pitch:g} deg")
         add("RIDGE", g["ridge"] + g["hips"], "Ridge and hip capping")
         add("GUTTER", g["eaves"], "Along the eaves")

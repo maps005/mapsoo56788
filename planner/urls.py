@@ -33,6 +33,7 @@ urlpatterns = [
     path(f"{P}/apply-standard", views.apply_standard),
     path(f"{P}/apply-sector", views.apply_sector),
     path(f"{P}/building/generate", views.building_generate),
+    path(f"{P}/building/measure", views.building_measure),
     path(f"{P}/calc", views.calculations),
     path(f"{P}/splicing", views.splicing_view),
     path(f"{P}/revisions", views.revisions),

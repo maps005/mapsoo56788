@@ -203,8 +203,8 @@ def _elevation(cv, b: B.Building, view: str, box, label: str):
         across = (r.y1 - r.y0 if r.ridge == "x" else r.x1 - r.x0) + 2 * r.overhang
         cv.setFillColor(colors.HexColor("#8a4b38") if r.covering == "tiles" else colors.HexColor("#6b7884"))
         cv.setLineWidth(0.8)
-        if r.kind == "flat":
-            _poly(cv, [T(u0, ze), T(u1, ze), T(u1, ze + 0.3), T(u0, ze + 0.3)], fill=True)
+        if r.kind == "flat":  # slab edge, or the parapet wall round the roof
+            _poly(cv, [T(u0, ze), T(u1, ze), T(u1, ze + max(0.3, r.parapet)), T(u0, ze + max(0.3, r.parapet))], fill=True)
         elif r.kind == "shed":
             if along_view:
                 _poly(cv, [T(u0, ze), T(u1, ze), T(u1, ze + g["rise"]), T(u0, ze + g["rise"])], fill=True)

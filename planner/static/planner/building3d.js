@@ -88,7 +88,16 @@ function slabMesh(b, sl) {
 
 // a roof as triangles, in the same geometry as ftth/building.py roof_geometry
 function roofMesh(b, r) {
-  if (r.kind === "flat") return null;  // a flat roof is its slab
+  if (r.kind === "flat") {  // a flat roof is its slab; its parapet, if any, is a low wall round the edge
+    if (!(r.parapet > 0)) return null;
+    const lv = lvlOf(b, r.level), z0 = lv.elevation + lv.height, t = 0.2, grp = new THREE.Group();
+    const c = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
+    for (let i = 0; i < 4; i++) {
+      const a = c[i], e = c[(i + 1) % 4], L = Math.hypot(e[0] - a[0], e[1] - a[1]);
+      grp.add(tag(boxAlong(a, e, 0, L, z0, z0 + r.parapet, t, mats().wall), "roof", r.id));
+    }
+    return grp;
+  }
   const lv = lvlOf(b, r.level), ze = lv.elevation + lv.height, o = r.overhang;
   const X0 = r.x0 - o, X1 = r.x1 + o, Y0 = r.y0 - o, Y1 = r.y1 + o;
   const t = Math.tan(r.pitch * Math.PI / 180);
@@ -473,24 +482,78 @@ const AUTO = [["width", "Width east-west (m)", 12], ["depth", "Depth north-south
   ["material", "Walls", ["block", "brick", "stone", "concrete"]], ["window_spacing", "A window every (m)", 3], ["window_width", "Window width (m)", 1.2],
   ["window_height", "Window height (m)", 1.2], ["window_style", "Windows", ["casement", "sliding", "fixed", "hung"]], ["door_style", "Main door", ["single", "double", "sliding", "arched"]],
   ["roof", "Roof", ["gable", "hip", "shed", "flat"]], ["pitch", "Roof pitch (deg)", 25], ["overhang", "Overhang (m)", 0.6],
-  ["covering", "Covering", ["iron sheets", "tiles", "concrete"]], ["columns", "Concrete frame (columns)", false]];
+  ["covering", "Covering", ["iron sheets", "tiles", "concrete"]], ["parapet", "Parapet on a flat roof (m)", 1.0],
+  ["columns", "Concrete frame (columns)", false]];
+const BLOCK = [["x", "Block corner x, east (m)", 0], ["y", "Block corner y, north (m)", 0], ["start_floor", "Starts at floor (0 = ground)", 0]];
 function makeAutoForm() {
   $("#bldAuto").innerHTML = AUTO.map(([k, t, d]) => Array.isArray(d)
     ? `<label>${t}<select data-ap="${k}">${d.map((x) => `<option>${x}</option>`).join("")}</select></label>`
     : typeof d === "boolean" ? `<label class="inline"><input type="checkbox" data-ap="${k}"> ${t}</label>`
-    : `<label>${t}<input data-ap="${k}" type="number" step="any" value="${d}"></label>`).join("");
+    : `<label>${t}<input data-ap="${k}" type="number" step="any" value="${d}"></label>`).join("") +
+    `<label class="inline"><input type="checkbox" id="bldAddBlock"> Add as a new block (wing, or a tower on a podium) instead of replacing</label>
+     <div id="bldBlock" class="form" hidden>${BLOCK.map(([k, t, d]) => `<label>${t}<input data-ap="${k}" type="number" step="any" value="${d}"></label>`).join("")}</div>`;
+  $("#bldAddBlock").addEventListener("change", (e) => { $("#bldBlock").hidden = !e.target.checked; });
   BLD.formMade = true;
 }
 $("#bldGenerate").onclick = async () => {
-  if (S.D.building?.walls?.length && !confirm("Replace the current building with a new design?")) return;
-  const body = {};
-  $$("[data-ap]").forEach((i) => { body[i.dataset.ap] = i.type === "checkbox" ? i.checked : i.tagName === "SELECT" ? i.value : +i.value; });
+  const add = $("#bldAddBlock")?.checked;
+  if (add && !S.D.building?.walls?.length) return toast("Design the first block first, then add wings or towers to it");
+  if (!add && S.D.building?.walls?.length && !confirm("Replace the current building with a new design?")) return;
+  const body = { mode: add ? "add" : "replace" };
+  $$("[data-ap]").forEach((i) => {
+    if (!add && i.closest("#bldBlock")) return;
+    body[i.dataset.ap] = i.type === "checkbox" ? i.checked : i.tagName === "SELECT" ? i.value : +i.value;
+  });
   try {
-    const st = await serverOp(`/api/projects/${S.pid}/building/generate`, jsonBody(body));
+    let st = await serverOp(`/api/projects/${S.pid}/building/generate`, jsonBody(body));
+    // a design started from a 3D model also gets the parts found on top of it (a tower, stair towers, plant rooms)
+    const parts = !add && $("#bldModelParts")?.checked ? BLD.modelBlocks || [] : [];
+    for (const [k, blk] of parts.entries()) {
+      bmsg(`Adding part ${k + 1} of ${parts.length} from the model…`);
+      const { what, ...p } = blk;
+      st = await serverOp(`/api/projects/${S.pid}/building/generate`, jsonBody({ ...body, ...p, mode: "add" }));
+    }
+    if (parts.length) bmsg("");
     BLD.sel = null; BLD.level = 0; BLD.fitted = false;
-    toast(`Designed: ${st.result.levels} floor(s), ${st.result.walls} walls, ${st.result.openings} doors and windows`);
+    toast(`${add ? "Block added" : "Designed"}${parts.length ? ` with ${parts.length} part(s) from the model` : ""}: ${st.result.levels} floor(s), ${st.result.walls} walls, ${st.result.openings} doors and windows`);
   } catch (e) { toast(e.message, 7000); }
 };
+// measure a 3D model on the server and fill the brief; the units and up axis it guessed can be changed and re-measured
+async function measureModel(f, unit, up) {
+  const fd = new FormData();
+  fd.append("file", f);
+  if (unit) fd.append("unit", unit);
+  if (up) fd.append("up", up);
+  try {
+    bmsg(`Measuring ${f.name}…`);
+    const r = await api(`/api/projects/${S.pid}/building/measure`, { method: "POST", body: fd });
+    for (const [k, v] of Object.entries(r.brief)) {
+      const i = $(`[data-ap="${k}"]`);
+      if (!i || i.closest("#bldBlock")) continue;
+      if (i.type === "checkbox") i.checked = !!v; else i.value = v;
+    }
+    const opt = (vals, cur) => vals.map((v) => `<option${v === cur ? " selected" : ""}>${esc(v)}</option>`).join("");
+    $("#bldModelInfo").innerHTML = `<b>${esc(f.name)}</b>: ${esc(r.summary)}` +
+      (r.notes.length ? `<br><span class="muted">${r.notes.map(esc).join("<br>")}</span>` : "") +
+      `<div class="row">Wrong size? <label>Units <select id="bldModelUnit">${opt(r.units, r.unit)}</select></label>
+       <label>Up axis <select id="bldModelUp">${opt(["z", "y"], r.up)}</select></label></div>` +
+      (r.blocks.length ? `<label class="inline"><input type="checkbox" id="bldModelParts" checked> Also add the
+        ${r.blocks.length} part(s) found on top (${esc([...new Set(r.blocks.map((b) => b.what))].join(", "))})</label>` : "");
+    BLD.modelBlocks = r.blocks;
+    const again = () => measureModel(f, $("#bldModelUnit").value, $("#bldModelUp").value);
+    $("#bldModelUnit").onchange = again;
+    $("#bldModelUp").onchange = again;
+    bmsg("Brief filled from the model: check it, then press Design the building");
+    if (S.D.building && r.turn_deg != null) $("#bldRot").value = r.turn_deg;
+  } catch (err) { toast(err.message, 8000); bmsg(""); }
+}
+$("#bldModelFile").addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  if (f.size > 60 * 1024 * 1024) return toast("3D models must be smaller than 60 MB");
+  measureModel(f);
+});
 $("#bldAddLevel").onclick = () => {
   const b = S.D.building;
   if (!b) return;
