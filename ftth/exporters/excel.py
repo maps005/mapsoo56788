@@ -441,6 +441,24 @@ def qa_rows(d: Design, st: Stamp) -> tuple[list[list], list[dict]]:
     issues = validate.validate(d)
     cnt = validate.counts(issues)
     i, s = d.info, calc.summary(d)
+    from .. import sectors
+    signed = all([i.planned_by, i.checked_by])
+    ready = ("no - fix the errors first" if cnt["errors"] else
+             f"no - resolve or accept {cnt['warnings']} warning(s)" if cnt["warnings"] else
+             "no - record who planned and checked the design" if not signed else "yes")
+    if sectors.get(i.sector).get("construction"):  # a building: its own figures, no survey dataset
+        from .. import compliance
+        f = compliance.figures(d)
+        rows = [["Design status", i.design_status], ["Revision", st.revision], ["Data hash", st.hash],
+                ["Planned by", i.planned_by or "not recorded"], ["Checked by", i.checked_by or "not recorded"],
+                ["Approved by", i.approved_by or "-"],
+                ["Floors / flats", f"{f.get('floors', 0)} / {f.get('flats', 0)}" if f else "-"],
+                ["Gross floor area", f"{f['gfa']:,.0f} m²" if f else "-"],
+                ["Validation errors", cnt["errors"]], ["Validation warnings", cnt["warnings"]],
+                ["Notes (information only)", cnt["notes"]], ["BOQ total", f"{s['currency']} {s['boq_total']:,.2f}"],
+                ["Ready for approval", ready]]
+        order = {"error": 0, "warning": 1}
+        return rows, sorted(issues, key=lambda x: (order.get(x["severity"], 2), x["code"]))
     rows = [["Survey dataset", i.survey_status], ["Survey approved by", i.survey_approved_by or "-"],
             ["Survey approved at", i.survey_approved_at or "-"], ["Design status", i.design_status],
             ["Revision", st.revision], ["Data hash", st.hash], ["Planned by", i.planned_by or "-"],

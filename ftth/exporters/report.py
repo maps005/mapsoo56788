@@ -69,6 +69,19 @@ class Section:
         return [(["Item", "Detail"], b[1]) if b[0] == "kv" else (b[1], b[2]) for b in self.blocks if b[0] in ("kv", "table")]
 
 
+EXTERNAL_CODES = {"MANHOLE", "DRAIN-PIPE", "SEWER-CONNECTION", "SOAKAWAY", "BOUNDARY-WALL", "GATE", "PAVING",
+                  "ROAD-MARKING", "TOPSOIL", "MULCH", "PLANTS-FLOWER", "SHRUBS", "HEDGE", "GRASS", "BED-EDGING", "TREE",
+                  "TREE-PIT", "TRANSFORMER", "CHANNEL-DRAIN", "KERB", "EXT-LIGHTING", "BIN-STORE"}
+
+
+def project_cost(total: float) -> dict:
+    """The construction cost from the measured work: preliminaries 10 % and contingency 7.5 % of it, VAT 16 % on
+    the lot (the one figure the report, the budget check and the summary use)."""
+    pre, cont = 0.10 * total, 0.075 * total
+    vat = 0.16 * (total + pre + cont)
+    return {"pre": pre, "cont": cont, "vat": vat, "whole": total + pre + cont + vat}
+
+
 def _m(v: float) -> str:
     return f"{v:,.0f} m"
 
@@ -134,8 +147,10 @@ def _building_sections(d: Design) -> list[Section]:
     site.text(st.client_brief or "No brief has been recorded.")
     rows = [["Occupants", f"{st.occupants:,}" if st.occupants else "-"],
             ["Budget", f"{i.currency} {st.budget:,.0f}" if st.budget else "not given"]]
-    if st.budget and total:
-        rows.append(["BOQ estimate against the budget", f"{total / st.budget:.0%}"])
+    if st.budget and total:  # the whole construction cost (with preliminaries, contingency and VAT), not bare work
+        whole = project_cost(total)["whole"]
+        rows.append(["Estimated construction cost against the budget", f"{whole / st.budget:.0%} "
+                                                                      f"({i.currency} {whole:,.0f} all-in)"])
     site.kv(rows)
     if st.schedule:
         have: dict[str, list] = {}
@@ -164,10 +179,17 @@ def _building_sections(d: Design) -> list[Section]:
                     f"{B.roof_geometry(r)['eaves']:,.1f} m"] for r in b.roofs])
     sp = b.spec
     bld.h("3.3 Specification")
-    bld.kv([["Strip footings", f"{sp.footing_width:g} m wide, {sp.footing_thickness:g} m thick, "
+    framed = bool(b.columns) and len(b.levels) > 1
+    bld.kv([["Foundations", f"to the structural calculations, founded at -{sp.founding_depth:g} m; wall footings "
+                            f"{sp.footing_width:g} x {sp.footing_thickness:g} m under the ground-floor walls"] if framed else
+            ["Strip footings", f"{sp.footing_width:g} m wide, {sp.footing_thickness:g} m thick, "
                                f"excavated {sp.excavation_depth:g} m"],
-            ["Hardcore under the ground slab", f"{sp.hardcore:g} m"], ["Reinforcement", f"{sp.rebar_kg_per_m3:g} kg/m³"],
-            ["Plaster and render", "yes" if sp.plaster else "no"], ["Setback from the plot boundary", f"{sp.setback:g} m"]])
+            ["Hardcore under the ground slab", f"{sp.hardcore:g} m"],
+            ["Reinforcement", "by element (kg/m³): foundations 90, slabs and stairs 110, walls 120, beams 180, columns 220"
+             if framed else f"{sp.rebar_kg_per_m3:g} kg/m³"],
+            ["Plaster and render", "yes" if sp.plaster else "no"],
+            ["Building lines", (f"front {i.site.setback_front:g} m, sides {i.site.setback_side:g} m, rear {i.site.setback_rear:g} m"
+                                if i.site.setback_front or i.site.setback_side else f"{sp.setback:g} m all round")]])
     out.append(bld)
     mat = Section("4. Bill of Quantities Summary")
     mat.table(["Item", "Unit", "Quantity", "Rate", "Amount"],
@@ -178,8 +200,86 @@ def _building_sections(d: Design) -> list[Section]:
     if unpriced:
         mat.p(f"{unpriced} item(s) have no rate yet: import a price list in Materials & rules, or press Fill missing "
               f"rates there for indicative rates.")
+    if total and gross:  # the measured work, then the whole project cost
+        pc = project_cost(total)
+        ext = sum(ln.total or 0 for ln in bom if ln.qty and ln.code in EXTERNAL_CODES)
+        building = project_cost(total - ext)["whole"]
+        mat.h("Estimated project cost")
+        mat.table(["Item", "Basis", "Amount"],
+                  [["Measured work (the BOQ above)", f"{i.currency} {total / gross:,.0f} per m²", f"{total:,.0f}"],
+                   ["Preliminaries and general items", "10 % of the measured work", f"{pc['pre']:,.0f}"],
+                   ["Contingency", "7.5 % of the measured work", f"{pc['cont']:,.0f}"], ["VAT", "16 %", f"{pc['vat']:,.0f}"],
+                   ["Estimated construction cost", f"{i.currency} {pc['whole'] / gross:,.0f} per m²", f"{pc['whole']:,.0f}"],
+                   ["  of which the building", f"{i.currency} {building / gross:,.0f} per m²", f"{building:,.0f}"],
+                   ["  of which external works and utilities", "drains, walls, gate, landscaping, transformer",
+                    f"{pc['whole'] - building:,.0f}"]], total=True)
+        mat.p(f"The estimated construction cost, {i.currency} {pc['whole']:,.0f}, is the one figure used throughout. "
+              "Benchmark for the building of a mid-range Nairobi apartment block: about KES 68,000-75,000 per m² of "
+              "gross floor area (Cytonn 2025, all-in, without external works). Professional fees and approvals are "
+              "excluded.")
     out.append(mat)
-    con = Section("5. Quality Checks and Recommendations")
+    from .. import compliance
+    f = compliance.figures(d)
+    st_ = i.site
+    from .. import structure
+    dz = structure.design(b, st_.bearing_capacity) if len(b.levels) > 1 else None
+    if dz:
+        calc_ = Section("Structural Calculations (preliminary)")
+        lat = dz["lateral"]
+        worst = max(dz["columns"], key=lambda c: c["N_uls"])
+        calc_.p(dz["note"])
+        calc_.kv([["Materials", f"{dz['concrete']} frame and cores, {dz['foundation_concrete']} foundations, {dz['steel']} bars"],
+                  ["Loads", f"imposed {dz['imposed']:g} kN/m2 (roof 1.5); slab self-weight + finishes 1.5 + partitions "
+                            f"{structure.PARTITIONS:g}; roof screed, waterproofing and plant 4.0 kN/m2; beams, facades "
+                            f"({structure.WALL_LINE:g} kN/m a storey) and columns' own weight in the takedown"],
+                  ["Design loads (1.35G + 1.5Q)", f"floors {dz['w_floor']:g} kN/m2, roof {dz['w_roof']:g} kN/m2"],
+                  ["Slab", f"{dz['slab'] * 1000:.0f} mm {'two-way' if dz['two_way'] else 'one-way'} over {min(dz['spans']):g} x "
+                           f"{max(dz['spans']):g} m panels (span/depth {min(dz['spans']) / dz['slab']:.0f}); {dz['rebar']['slab']}"],
+                  ["Beams", f"B1 {dz['beam_x']['b'] * 1000:.0f} x {dz['beam_x']['h'] * 1000:.0f} ({dz['rebar']['beam_x']}); "
+                            f"B2 {dz['beam_y']['b'] * 1000:.0f} x {dz['beam_y']['h'] * 1000:.0f} ({dz['rebar']['beam_y']})"],
+                  ["Heaviest column", f"{worst['id']}: {worst['trib']:g} m2 tributary, N = {worst['N_uls']:,} kN (ultimate) "
+                                      f"-> {max(worst['sizes']) * 1000:.0f} mm square with 2 % steel and bending allowance; "
+                                      f"{dz['rebar']['column']}"],
+                  ["Foundations", ((f"{len(dz['foundation'].get('pads', []))} pads and {len(dz['foundation'].get('combined', []))} "
+                                    f"combined footings on {dz['bearing']:g} kN/m2 at -{dz['foundation']['depth']:g} m "
+                                    f"(net {dz['bearing'] - structure.GAMMA_SOIL * dz['foundation']['depth']:g} kN/m2 for the column "
+                                    f"loads); {dz['rebar']['foundation']}")
+                                   if dz["foundation"]["type"] == "pads" else
+                                   f"raft {dz['foundation']['thickness'] * 1000:.0f} mm under the whole building at "
+                                   f"-{dz['foundation']['depth']:g} m, {dz['foundation']['pressure']} kN/m2 at its edge with "
+                                   f"the overturning, no uplift; {dz['rebar']['foundation']}")
+                   + "".join(f"; core raft CR{n + 1} {c['L']:g} x {c['B']:g} x {c['t']:g} m, {c['pressure']} kN/m2 at its edge "
+                             f"with the overturning (no uplift)" for n, c in enumerate(dz["foundation"].get("cores", [])))
+                   + (f"; core rafts {dz['rebar']['core_raft']}" if dz["rebar"].get("core_raft") else "")],
+                  ["Headroom", f"{dz['headroom']:g} m clear under the deepest beam (2.25 m required; door heads 2.1 m)"],
+                  ["Lateral", f"{lat['cores']} RC cores; seismic weight {lat['weight']:,} kN (floors, frame, cores, facades); "
+                              f"earthquake {lat['seismic']:,} kN ({lat['coeff']:g} W), wind {lat['wind_x']:,} / {lat['wind_y']:,} kN; "
+                              f"solid walls {lat['walls_x']:g} m x {lat['t_x'] * 1000:.0f} mm along x "
+                              f"({(lat['use_x'] or 0):.0%} used), {lat['walls_y']:g} m x {lat['t_y'] * 1000:.0f} mm along y "
+                              f"({(lat['use_y'] or 0):.0%} used); overturning {lat['M_x']:,} / {lat['M_y']:,} kNm a core; "
+                              f"horizontal {lat['h_bars_x']} / {lat['h_bars_y']}, vertical {lat['v_bars_x']} / {lat['v_bars_y']}"]])
+        out.append(calc_)
+    cmp_ = Section("5. Planning and Building Code Compliance")
+    cmp_.kv([["Plot", st_.plot_ref or "-"], ["Zone", st_.zone or "-"],
+             ["Plot area", f"{f['plot_area']:,.0f} m²" if f.get("plot_area") else "not drawn"],
+             ["Ground coverage", f"{f['coverage']:g} % (limit {st_.max_coverage:g} %)" if f.get("coverage") is not None else "-"],
+             ["Plot ratio", f"{f['plot_ratio']:g} % (limit {st_.max_plot_ratio:g} %)" if f.get("plot_ratio") is not None else "-"],
+             ["Floors / height", f"{f.get('floors')} floors, {f.get('height_roof')} m to the roof, {f.get('height')} m to the parapet"
+              + (f" (limit {st_.max_floors} floors)" if st_.max_floors else "")],
+             ["Geotechnical report", st_.geotech_report or "not recorded"],
+             ["Flats", ", ".join(f"{v['count']} x {t} (average {v['average']:g} m²)" for t, v in f.get("flat_types", {}).items()) or "-"],
+             ["Car parking", f"{f.get('parking_provided', 0)} provided, {f.get('parking_required', 0)} required"],
+             ["Setbacks", ", ".join(f"{k} {v:g} m" for k, v in f.get("setbacks", {}).items()) or "-"],
+             ["Escape stairs / lifts", f"{f.get('stairs')} / {f.get('lifts')}"]])
+    allc = compliance.check(d)
+    codes = [x for x in allc if x["severity"] in ("error", "warning")]
+    notes_ = [x["message"] for x in allc if x["severity"] == "info"]
+    cmp_.p("No planning or code check fails or warns." if not codes else
+           f"{len(codes)} planning or code item(s) need attention (listed in section 6).")
+    for n_ in notes_:
+        cmp_.p("To complete: " + n_)
+    out.append(cmp_)
+    con = Section("6. Quality Checks and Recommendations")
     con.text(i.recommendations)
     errs = [x for x in issues if x["severity"] in ("error", "warning")]
     if errs:

@@ -335,7 +335,10 @@ def bom(d: Design) -> list[BomLine]:
 
     if d.building is not None:  # construction: quantities measured from the building model
         from . import building
-        for code, q, source in building.quantities(d.building):
+        for code, q, source in building.quantities(d.building, d.info.site.bearing_capacity):
+            add(code, q, source)
+        from . import services  # drainage, water, fire safety and external works
+        for code, q, source in services.quantities(d):
             add(code, q, source)
 
     adj: dict[str, float] = defaultdict(float)

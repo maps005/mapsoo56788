@@ -60,7 +60,7 @@ def test_an_answer_becomes_a_checked_proposal_and_applying_it_adds_the_landscapi
     assert q["PLANTS-FLOWER"] >= 6 * beds and q["TREE"] == kinds.count("tree")
     assert any(ln.code == "PLANTS-FLOWER" and ln.qty for ln in calc.bom(d))  # priced from the catalogue
     pdf = PdfReader(io.BytesIO(plans.build_plans_pdf(d, stamp(d, 1))))
-    assert any("Landscaping" in pg.extract_text() for pg in pdf.pages)
+    assert any("Site plan" in pg.extract_text() for pg in pdf.pages)
     ai_edits.apply(d, [{"op": "remove_landscape", "kind": "tree"}])
     assert "tree" not in [x.kind for x in d.building.landscape] and d.building.landscape
     ai_edits.apply(d, [{"op": "remove_landscape"}])

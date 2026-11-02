@@ -727,6 +727,8 @@ def record_revision(request, pid: str, status: str | None, note: str):
                                 f"remove the item(s) first.")
     if status:
         d.info.design_status = status
+        if status == "approved":  # who approved, for the QA report and the title blocks
+            d.info.approved_by = (request.user.get_full_name() or request.user.get_username())[:120]
     elif d.info.design_status == "approved" and not p.can_approve(request.user):
         d.info.design_status = "in_review"  # only approvers can record an approved revision
     with transaction.atomic():

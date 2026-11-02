@@ -42,7 +42,8 @@ class Stamp:
 
     @property
     def line(self) -> str:
-        return f"{self.project} | Rev {self.revision} | {self.status.upper()} | data {self.hash} | {self.date}"
+        label = "APPROVED FOR SUBMISSION" if self.status == "approved" else self.status.upper().replace("_", " ")
+        return f"{self.project} | Rev {self.revision} | {label} | data {self.hash[:8]} | {self.date}"
 
 
 def logo_size(path: Path | None, max_w: float, max_h: float) -> tuple[float, float] | None:

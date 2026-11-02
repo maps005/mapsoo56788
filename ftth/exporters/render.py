@@ -334,7 +334,17 @@ def furniture(cv, r: B.Room, T, k):
             for j in range(rows):
                 box(0.4 + i * 1.4, 0.8 + j * 1.2, 1.6 + i * 1.4, 1.3 + j * 1.2)
         box(L / 2 - 0.7, Dp - 0.9, L / 2 + 0.7, Dp - 0.3, C("#efe7da"))
-    elif name in ("Toilets", "Bathroom"):
+    elif name == "Living / kitchen":  # sofa by the window, kitchen run along the side wall
+        box(L * 0.25, Dp - 0.95, L * 0.75, Dp - 0.1, C("#e9edf1"))
+        box(0.05, 0.3, 0.65, Dp * 0.55, C("#efe7da"))
+        box(0.1, Dp * 0.25, 0.55, Dp * 0.25 + 0.6)
+    elif name in ("Hall", "Hall / dining"):
+        cx, cy = P(L / 2, Dp / 2)
+        cv.rect(cx - 0.8 * k, cy - 0.45 * k, 1.6 * k, 0.9 * k, stroke=1, fill=0)
+        for dx in (-0.5, 0.5):
+            for dy in (-0.7, 0.7):
+                cv.circle(cx + dx * k, cy + dy * k, 0.2 * k, stroke=1, fill=0)
+    elif name in ("Toilets", "Bathroom", "Shower room"):
         n = max(1, min(6, int((L - 0.2) // 1.0)))
         for i in range(n):  # cubicles along the far wall, a WC in each, basins by the door
             u = 0.1 + i * 1.0
@@ -355,7 +365,7 @@ def furniture(cv, r: B.Room, T, k):
     elif name == "Living room":
         box(L * 0.2, Dp - 0.95, L * 0.8, Dp - 0.1, C("#e9edf1"))
         box(L * 0.35, Dp - 2.1, L * 0.65, Dp - 1.4)
-    elif name == "Lift and lobby":
+    elif name in ("Lift and lobby", "Firefighting lift and lobby"):
         s = min(2.0, L - 0.3, Dp - 0.3)
         box((L - s) / 2, Dp - s, (L + s) / 2, Dp)
         cv.line(*P((L - s) / 2, Dp - s), *P((L + s) / 2, Dp))
@@ -369,7 +379,7 @@ def furniture(cv, r: B.Room, T, k):
 
 def wet_floor(cv, r: B.Room, T, k):
     """300 mm floor tiles in wet rooms."""
-    if not r.rect or r.name not in ("Toilets", "Bathroom", "Sluice room", "Kitchen", "Kitchenette") or k < 2.5:
+    if not r.rect or r.name not in ("Toilets", "Bathroom", "Shower room", "Sluice room", "Kitchen", "Kitchenette") or k < 2.5:
         return
     x0, y0, x1, y1 = r.rect
     cv.saveState()

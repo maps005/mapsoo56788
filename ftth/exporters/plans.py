@@ -9,9 +9,9 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A3, landscape
 from reportlab.pdfgen import canvas as rl_canvas
 
-from .. import building as B
+from .. import building as B, services
 from ..model import Design
-from . import render as R
+from . import render as R, sheets as SH
 from .common import Stamp, clean
 
 W, H = landscape(A3)
@@ -22,6 +22,7 @@ GREY, DARK = colors.HexColor("#555555"), colors.HexColor("#1f2933")
 
 
 def _frame(cv, d: Design, st: Stamp, title: str, page: int, total: int, scale: int | None):
+    cv.setFillColor(colors.black)
     cv.setStrokeColor(colors.black)
     cv.setLineWidth(1)
     cv.rect(M, M, W - 2 * M, H - 2 * M)
@@ -29,7 +30,29 @@ def _frame(cv, d: Design, st: Stamp, title: str, page: int, total: int, scale: i
     cv.setFont("Helvetica-Bold", 12)
     cv.drawString(M + 8, M + 28, clean(f"{title} - {d.info.name}")[:110])
     cv.setFont("Helvetica", 8)
-    cv.drawString(M + 8, M + 12, clean(f"{d.info.company or st.brand.name}   {d.info.area}   {st.line}")[:180])
+    line = clean(f"{d.info.company or st.brand.name}   {d.info.area}   {st.line}")
+    room = (W * 0.52 - 14 if (d.info.site.architect or d.info.site.engineer or d.info.site.plot_ref) else W - 2 * M - 120) - M
+    while cv.stringWidth(line, "Helvetica", 8) > room and len(line) > 10:  # never into the plot / seals block
+        line = line[:-2]
+    cv.drawString(M + 8, M + 12, line)
+    site = d.info.site
+    if site.architect or site.engineer or site.plot_ref:  # who signs, and the plot
+        cv.setFont("Helvetica", 6.5)
+        mid = W * 0.52
+        cv.drawString(mid, M + 30, clean(f"Plot: {site.plot_ref or '-'}" + (f"   Zone: {site.zone}" if site.zone else ""))[:110])
+        cv.drawString(mid, M + 20, clean(f"Architect: {site.architect or '-'} {('(' + site.architect_reg + ')') if site.architect_reg else ''}")[:80])
+        cv.drawString(mid, M + 10, clean(f"Engineer: {site.engineer or '-'} {('(' + site.engineer_reg + ')') if site.engineer_reg else ''}")[:80])
+    if site.architect or site.engineer:  # room for the professionals' seals
+        cv.setStrokeColor(colors.HexColor("#9aa5b1"))
+        cv.setLineWidth(0.5)
+        for i2, who in enumerate(("ARCHITECT'S SEAL", "ENGINEER'S SEAL")):
+            sx = W - M - 230 + i2 * 78
+            cv.rect(sx, M + 4, 72, 38, stroke=1, fill=0)
+            cv.setFont("Helvetica", 5)
+            cv.setFillColor(colors.HexColor("#9aa5b1"))
+            cv.drawCentredString(sx + 36, M + 34, who)
+        cv.setFillColor(colors.black)
+        cv.setFont("Helvetica", 8)
     cv.drawRightString(W - M - 8, M + 28, f"Sheet {page} of {total}")
     cv.drawRightString(W - M - 8, M + 12, f"Scale 1:{scale} (A3)" if scale else "Not to scale")
 
@@ -105,12 +128,32 @@ def _plan(cv, b: B.Building, lv: int, T, k: float):
             cuts.append((s, max(s, o.offset - o.width / 2)))
             s = min(L, o.offset + o.width / 2)
         cuts.append((s, L))
-        cv.setFillColor(colors.HexColor("#3b4148") if w.kind == "external" else colors.HexColor("#7d858e"))
+        rc = w.material == "concrete"  # reinforced concrete (the cores): its own colour, hatched
+        cv.setFillColor(colors.HexColor("#6b5b4e") if rc else colors.HexColor("#3b4148") if w.kind == "external"
+                        else colors.HexColor("#7d858e"))
         cv.setStrokeColor(colors.black)
-        cv.setLineWidth(0.8 if w.kind == "external" else 0.5)
+        cv.setLineWidth(0.8 if w.kind == "external" or rc else 0.5)
         for s0, s1 in cuts:
             if s1 - s0 > 1e-3:
-                _poly(cv, [T(*p) for p in _wall_quad(w, s0, s1)], fill=True)
+                quad = [T(*p) for p in _wall_quad(w, s0, s1)]
+                _poly(cv, quad, fill=True)
+                if rc:
+                    cv.saveState()
+                    path = cv.beginPath()
+                    path.moveTo(*quad[0])
+                    for q in quad[1:]:
+                        path.lineTo(*q)
+                    path.close()
+                    cv.clipPath(path, stroke=0, fill=0)
+                    cv.setStrokeColor(colors.HexColor("#d7c9b8"))
+                    cv.setLineWidth(0.4)
+                    xs, ys = [q[0] for q in quad], [q[1] for q in quad]
+                    h = max(ys) - min(ys)
+                    xx = min(xs) - h
+                    while xx < max(xs):
+                        cv.line(xx, min(ys), xx + h, max(ys))
+                        xx += 2.5
+                    cv.restoreState()
         ux, uy = ((w.b[0] - w.a[0]) / (L or 1), (w.b[1] - w.a[1]) / (L or 1))
         for o in ops:
             c0 = (w.a[0] + ux * (o.offset - o.width / 2), w.a[1] + uy * (o.offset - o.width / 2))
@@ -122,31 +165,70 @@ def _plan(cv, b: B.Building, lv: int, T, k: float):
                     nx, ny = -uy * w.thickness * f, ux * w.thickness * f
                     cv.line(*T(c0[0] + nx, c0[1] + ny), *T(c1[0] + nx, c1[1] + ny))
             else:  # door leaf open to the wall's left side, and its swing (double doors: a leaf from each jamb)
-                leaves = [(c0, o.width / 2, 1), (c1, o.width / 2, -1)] if o.style == "double" else [(c0, o.width, 1)]
+                pair = o.style == "double" or (o.style == "fire" and o.width >= 1.4)
+                leaves = [(c0, o.width / 2, 1), (c1, o.width / 2, -1)] if pair else [(c0, o.width, 1)]
+                side = -1 if o.flip else 1  # which face of the wall the door opens to
                 for hinge, r, sgn in leaves:
                     hx, hy = T(*hinge)
                     closed = math.degrees(math.atan2(uy * sgn, ux * sgn))  # towards the other jamb
-                    cv.line(hx, hy, *T(hinge[0] - uy * r, hinge[1] + ux * r))
-                    cv.arc(hx - r * k, hy - r * k, hx + r * k, hy + r * k, startAng=closed, extent=90 * sgn)
-    for st in (s for s in b.stairs if s.level == lv):
+                    cv.line(hx, hy, *T(hinge[0] - uy * r * side, hinge[1] + ux * r * side))
+                    cv.arc(hx - r * k, hy - r * k, hx + r * k, hy + r * k, startAng=closed, extent=90 * sgn * side)
+                if o.rating:
+                    cv.setFillColor(colors.HexColor("#c62828"))
+                    cv.setFont("Helvetica-Bold", 4.5)
+                    mid = ((c0[0] + c1[0]) / 2 + uy * 0.45 * side, (c0[1] + c1[1]) / 2 - ux * 0.45 * side)
+                    mx, my = T(*mid)
+                    cv.drawCentredString(mx, my - 1.5, f"FD{o.rating}")
+    if lv == len(b.levels) - 1 and lv > 0:  # the top floor: the stairs arriving from below, dashed
+        for st in (s for s in b.stairs if s.level == lv - 1):
+            flights, landing = B.stair_flights(b, st)
+            cv.saveState()
+            cv.setStrokeColor(GREY)
+            cv.setLineWidth(0.4)
+            cv.setDash([3, 2])
+            for fx, fy, fang, fn, _ in flights:
+                a2 = math.radians(fang)
+                ux2, uy2 = math.cos(a2), math.sin(a2)
+                nx2, ny2 = -uy2 * st.width / 2, ux2 * st.width / 2
+                run = fn * st.tread
+                _poly(cv, [T(fx + nx2, fy + ny2), T(fx + ux2 * run + nx2, fy + uy2 * run + ny2),
+                           T(fx + ux2 * run - nx2, fy + uy2 * run - ny2), T(fx - nx2, fy - ny2)])
+            if landing:
+                _poly(cv, [T(*q) for q in landing])
+            cv.setDash()
+            cv.restoreState()
+            cv.setFillColor(DARK)
+            cv.setFont("Helvetica-Bold", 6)
+            sx2, sy2 = T(flights[0][0], flights[0][1])
+            cv.drawString(sx2 + 3, sy2 + 3, "DN - roof access by hatch over")
+    for st in (s for s in b.stairs if s.level == lv):  # each flight: outline, treads, the walking line; the landing
         n, rise, going = B.stair_steps(b, st)
-        a = math.radians(st.angle)
-        ux, uy, nx, ny = math.cos(a), math.sin(a), -math.sin(a) * st.width / 2, math.cos(a) * st.width / 2
-        run = max(going, st.tread)
-        corners = [(st.x + nx, st.y + ny), (st.x + ux * run + nx, st.y + uy * run + ny),
-                   (st.x + ux * run - nx, st.y + uy * run - ny), (st.x - nx, st.y - ny)]
+        flights, landing = B.stair_flights(b, st)
         cv.setStrokeColor(DARK)
         cv.setLineWidth(0.5)
-        _poly(cv, [T(*p) for p in corners])
-        for i in range(1, n - 1):
-            t = i * st.tread
-            cv.line(*T(st.x + ux * t + nx, st.y + uy * t + ny), *T(st.x + ux * t - nx, st.y + uy * t - ny))
-        sx, sy = T(st.x + ux * 0.3, st.y + uy * 0.3)
-        ex, ey = T(st.x + ux * run * 0.9, st.y + uy * run * 0.9)
-        cv.line(sx, sy, ex, ey)
-        cv.setFillColor(DARK)
-        cv.setFont("Helvetica-Bold", 6)
-        cv.drawString(sx + 3, sy + 3, f"UP {n}R")
+        if landing:
+            _poly(cv, [T(*q) for q in landing])
+        for fi, (fx, fy, fang, fn, _) in enumerate(flights):
+            a = math.radians(fang)
+            ux, uy, nx, ny = math.cos(a), math.sin(a), -math.sin(a) * st.width / 2, math.cos(a) * st.width / 2
+            run = fn * st.tread if landing else max(going, st.tread)
+            corners = [(fx + nx, fy + ny), (fx + ux * run + nx, fy + uy * run + ny),
+                       (fx + ux * run - nx, fy + uy * run - ny), (fx - nx, fy - ny)]
+            _poly(cv, [T(*q) for q in corners])
+            for i2 in range(1, fn):
+                t = i2 * st.tread
+                cv.line(*T(fx + ux * t + nx, fy + uy * t + ny), *T(fx + ux * t - nx, fy + uy * t - ny))
+            sx, sy = T(fx + ux * 0.3, fy + uy * 0.3)
+            ex, ey = T(fx + ux * run * 0.9, fy + uy * run * 0.9)
+            cv.line(sx, sy, ex, ey)
+            ang2 = math.atan2(ey - sy, ex - sx)
+            cv.line(ex, ey, ex - 4 * math.cos(ang2 - 0.5), ey - 4 * math.sin(ang2 - 0.5))
+            cv.line(ex, ey, ex - 4 * math.cos(ang2 + 0.5), ey - 4 * math.sin(ang2 + 0.5))
+            if fi == 0:
+                cv.setFillColor(DARK)
+                cv.setFont("Helvetica-Bold", 6)
+                cv.drawString(sx + 3, sy + 3, f"UP {n}R" + (f" ({flights[0][3]}+{flights[1][3]})" if landing else "")
+                              + (" / DN" if lv > 0 else ""))
     cv.setFillColor(colors.HexColor("#5d6874"))
     for c in (c for c in b.columns if c.level == lv):
         h = c.size / 2
@@ -154,9 +236,9 @@ def _plan(cv, b: B.Building, lv: int, T, k: float):
     for r in (r for r in b.rooms if r.level == lv and r.name != "Stair"):  # names and floor areas (stairs show)
         x, y = T(r.x, r.y)
         name = r.name.upper() if r.name != "Corridor" else r.name
-        size = max(5.0, min(8.0, 1.6 * k))
+        size = max(5.5, min(8.0, 1.6 * k))
         room = (r.w * k - 4) if r.w else 1e9  # shrink, then wrap, a name to fit its room
-        while size > 4 and cv.stringWidth(name, "Helvetica-Bold", size) > room:
+        while size > 5 and cv.stringWidth(name, "Helvetica-Bold", size) > room:
             size -= 0.5
         lines = [name]
         if cv.stringWidth(name, "Helvetica-Bold", size) > room and " " in name:
@@ -170,11 +252,28 @@ def _plan(cv, b: B.Building, lv: int, T, k: float):
             cv.setFont("Helvetica", size - 1)
             cv.setFillColor(GREY)
             cv.drawCentredString(x, y - size, f"{r.area:g} m²")
+        if r.rect and r.unit and r.name in ("Bathroom", "Shower room"):  # inner rooms: the extract duct to the roof
+            fy = B._bbox(B.footprint(b))
+            mid_y = (fy[1] + fy[3]) / 2
+            x0, y0, x1, y1 = r.rect
+            dy0 = y1 - 0.55 if abs(y1 - mid_y) < abs(y0 - mid_y) else y0 + 0.15  # the corner by the corridor
+            dx0 = x0 + 0.15
+            cv.saveState()
+            cv.setStrokeColor(DARK)
+            cv.setLineWidth(0.5)
+            _poly(cv, [T(dx0, dy0), T(dx0 + 0.4, dy0), T(dx0 + 0.4, dy0 + 0.4), T(dx0, dy0 + 0.4)])
+            cv.line(*T(dx0, dy0), *T(dx0 + 0.4, dy0 + 0.4))
+            cv.line(*T(dx0, dy0 + 0.4), *T(dx0 + 0.4, dy0))
+            cv.setFont("Helvetica", 4.5)
+            cv.setFillColor(GREY)
+            cv.drawString(T(dx0 + 0.5, 0)[0], T(0, dy0 + 0.1)[1], "EXT DUCT")
+            cv.restoreState()
 
 
 LANDSCAPE_STYLE = {  # fill, label
     "flower_bed": ("#f3b6cc", "Flower beds"), "shrub_bed": ("#9cc58f", "Shrub beds"), "lawn": ("#cfe8b8", "Lawn"),
-    "paving": ("#dcd8d0", "Paving"), "hedge": ("#2f6b2f", "Hedges"), "tree": ("#3f8f3f", "Trees"),
+    "paving": ("#dcd8d0", "Paving"), "parking": ("#9ea5ad", "Car parking"), "hedge": ("#2f6b2f", "Hedges"),
+    "tree": ("#3f8f3f", "Trees"),
 }
 
 
@@ -258,10 +357,10 @@ def _elevation(cv, b: B.Building, view: str, box, label: str):
     trees = [x for x in b.landscape if x.kind == "tree"]
     us_all = list(map(u, pts)) + [u(t.points[0]) for t in trees]
     umin, umax = min(us_all) - 2, max(us_all) + 2
-    top = max(lv.elevation + lv.height for lv in b.levels) + max((B.roof_geometry(r)["rise"] for r in b.roofs), default=0) + 1.5
+    top = B.top_height(b) + 1.5
     top = max(top, 8.0 if trees else 0)
     x, y, bw, bh = box
-    sky = max(4.0, top * 0.35)  # sky above the building, then white paper
+    sky = max(4.0, min(top * 0.35, 12.0))  # sky above the building (12 m at most: tall towers keep their scale)
     n = _scale(umax - umin, top + sky + 1.0, bw, bh - 22)
     k = 1000 / n * PT_PER_MM
     ox = x + (bw - (umax - umin) * k) / 2
@@ -342,7 +441,55 @@ def _elevation(cv, b: B.Building, view: str, box, label: str):
                 R._rect(cv, x0 - 0.05 * k, z1, x1 + 0.05 * k, z1 + 0.07 * k, fill=R.C("#c9c4ba"), stroke=R.INK, width=0.4)
                 R.roof_shade(cv, x0, x1, z0, k, 0.5)
                 continue
-            if r.kind == "shed":
+            if r.kind in ("arch", "dome"):  # the vault: its pointed end seen along the ridge, its curve from the
+                # side; the dome: its pointed outline from every side
+                if r.kind == "dome" or not along_view:
+                    prof = B.dome_outline(r, u) if r.kind == "dome" else B.arch_profile(u0, u1, g["rise"], 16)
+                    u0, u1 = min(c for c, _ in prof), max(c for c, _ in prof)
+                    poly = [T(c, ze + zz) for c, zz in prof]
+                    fins_ = []
+                    c = u0
+                    while c < u1 - 1e-6:  # fins every 2.4 m, glass between, up to the arch
+                        fins_.append((c, min(u1, c + 0.9), min(u1, c + 2.4)))
+                        c += 2.4
+
+                    def z_at(cc):  # the height of the outline over a point across the view
+                        best = 0.0
+                        for (ca, za), (cb, zb) in zip(prof, prof[1:]):
+                            lo_, hi_ = min(ca, cb), max(ca, cb)
+                            if lo_ - 1e-9 <= cc <= hi_ + 1e-9:
+                                best = max(best, za if hi_ - lo_ < 1e-9 else za + (zb - za) * (cc - ca) / (cb - ca))
+                        return best
+                    cv.saveState()
+                    cv.setFillColor(R._mix(R.WALL_FILL.get(bws[0].material, R.WALL_FILL["block"]), R.SKY_LOW, haze))
+                    cv.setStrokeColor(R.INK)
+                    cv.setLineWidth(0.7)
+                    _poly(cv, poly, fill=True)
+                    for a_, f_, e_ in fins_:  # the glass strip of each bay, to the arch
+                        if e_ - f_ > 1e-6:
+                            cv.setFillColor(R._mix(R.C("#5d7d96"), R.SKY_LOW, haze))
+                            _poly(cv, [T(f_, ze), T(e_, ze), T(e_, ze + z_at(e_)), T(f_, ze + z_at(f_))], fill=True, stroke=False)
+                    cv.setStrokeColor(R._mix(R.C("#c9c4ba"), R.SKY_LOW, haze))
+                    cv.setLineWidth(0.3)
+                    zz = ze + 3.6
+                    while zz < ze + g["rise"]:  # the floor lines through the crown
+                        xs_ = [c for c, h in prof if ze + h >= zz]
+                        if xs_:
+                            cv.line(*T(min(xs_), zz), *T(max(xs_), zz))
+                        zz += 3.6
+                    cv.setStrokeColor(R.INK)
+                    cv.setLineWidth(0.7)
+                    _poly(cv, poly, fill=False)
+                    if r.kind == "dome" and r.mast:  # the mast on the cap
+                        top_ = max(zz_ for _, zz_ in prof)
+                        cs_ = [c for c, zz_ in prof if abs(zz_ - top_) < 1e-6]
+                        mx_ = (min(cs_) + max(cs_)) / 2
+                        cv.setLineWidth(1.0)
+                        cv.line(*T(mx_, ze + top_), *T(mx_, ze + top_ + r.mast))
+                    cv.restoreState()
+                    continue
+                poly = [T(u0, ze), T(u1, ze), T(u1, ze + g["rise"]), T(u0, ze + g["rise"])]
+            elif r.kind == "shed":
                 poly = ([T(u0, ze), T(u1, ze), T(u1, ze + g["rise"]), T(u0, ze + g["rise"])] if along_view
                         else [T(u0, ze), T(u1, ze), T(u1, ze + g["rise"])])
             elif along_view:
@@ -360,9 +507,22 @@ def _elevation(cv, b: B.Building, view: str, box, label: str):
             R._rect(cv, poly[0][0], poly[0][1] - 0.12 * k, poly[1][0], poly[0][1], fill=R.C("#f2efe9"), stroke=R.INK, width=0.4)  # fascia
             R.roof_shade(cv, poly[0][0] + r.overhang * k, poly[1][0] - r.overhang * k, poly[0][1] - 0.12 * k, k, 0.6)
 
+    def roof_plant():  # lift overruns and water tanks standing on the top floor's roof
+        top = len(b.levels) - 1
+        lvt = b.levels[top]
+        z0 = lvt.elevation + lvt.height
+        for r in b.rooms:
+            if r.level != top or not r.rect or not ("lift" in r.name.lower() or r.name == "Stair"):
+                continue
+            us = [u((r.rect[0], r.rect[1])), u((r.rect[2], r.rect[3]))]
+            lo, hi = min(us) + 0.3, min(min(us) + 2.8, max(us) - 0.3)
+            h = 2.6 if "lift" in r.name.lower() else 2.0
+            R._rect(cv, *T(lo, z0), *T(hi, z0 + h), fill=R._mix(R.C("#d3d2cc"), R.SKY_LOW, 0.1), stroke=R.INK, width=0.6)
     for depth_, kind, item in sorted(items, key=lambda t: t[0]):
         if kind == "block":
             draw_block(item)
+            if item == "":
+                roof_plant()
         else:
             tu = u(item.points[0])
             R.tree(cv, T(tu, 0)[0], oy, k, 5.5 + (sum(map(ord, item.id)) % 5) * 0.4, seed=sum(map(ord, item.id)),
@@ -375,6 +535,29 @@ def _elevation(cv, b: B.Building, view: str, box, label: str):
             if abs(dep(c) - near) < 0.6:
                 R.person(cv, T(u(c) - o.width / 2 - 1.2, 0)[0], oy, k, seed=1)
                 R.person(cv, T(u(c) + o.width / 2 + 1.6, 0)[0], oy, k, seed=2)
+    lx = T(min(u(p) for w in b.walls for p in (w.a, w.b)), 0)[0] - 8
+    for lv in b.levels:  # finished floor levels, and the roof
+        zy = T(0, lv.elevation)[1]
+        cv.setStrokeColor(R.INK)
+        cv.setLineWidth(0.3)
+        cv.line(lx - 30, zy, lx, zy)
+        cv.setFillColor(R.INK)
+        cv.setFont("Helvetica", 5.5 if k < 6 else 6.5)
+        cv.drawRightString(lx - 32, zy - 2, f"FFL {lv.elevation:+.2f}")
+    top_y = T(0, max(lv.elevation + lv.height for lv in b.levels))[1]
+    cv.line(lx - 30, top_y, lx, top_y)
+    cv.drawRightString(lx - 32, top_y - 2, f"ROOF {max(lv.elevation + lv.height for lv in b.levels):+.2f}")
+    mats = {w.material for w in b.walls if w.kind == "external"}
+    finish = {"block": "render on blockwork, painted", "brick": "facing brick", "stone": "dressed stone",
+              "concrete": "fair-faced concrete"}
+    note = ("Walls: " + ", ".join(finish.get(m, m) for m in sorted(mats)) +
+            "; windows: aluminium, clear glazing; doors: hardwood / FD60 to stairs; roof: " +
+            ", ".join(sorted({r.covering + (" with parapet" if r.parapet else "") for r in b.roofs})))
+    cv.setFont("Helvetica", 6)
+    head, _, tail = note.partition("; roof: ")
+    cv.drawRightString(x + bw, y + (7 if tail else 0), head)
+    if tail:
+        cv.drawRightString(x + bw, y, "roof: " + tail)
     cv.setStrokeColor(R.INK)
     cv.setLineWidth(1.4)
     cv.line(gx0, oy, gx1, oy)  # ground line
@@ -395,6 +578,7 @@ def build_plans_pdf(d: Design, st: Stamp) -> bytes:
         cv.showPage()
         cv.save()
         return buf.getvalue()
+    from .. import compliance
     pts = [p for w in b.walls for p in (w.a, w.b)]
     x0, x1 = min(p[0] for p in pts) - 1.5, max(p[0] for p in pts) + 1.5
     y0, y1 = min(p[1] for p in pts) - 1.5, max(p[1] for p in pts) + 1.5
@@ -404,37 +588,64 @@ def build_plans_pdf(d: Design, st: Stamp) -> bytes:
     ox = M + 30 + (box_w - (x1 - x0) * k) / 2
     oy = M + 70 + (box_h - (y1 - y0) * k) / 2
     T = lambda x, y: (ox + (x - x0) * k, oy + (y - y0) * k)  # noqa: E731
-    total = len(b.levels) + 3 + (1 if b.landscape else 0)
+    full = (M + 14, M + 60, W - 2 * M - 28, H - 2 * M - 80)
+    pages = []  # (title, scale or None, draw): drawn in order, numbered once all are known
+    if b.landscape or compliance.plot_local(d):
+        pages.append(("Site plan", None, lambda: SH.site_plan(cv, d, None, _scale, PT_PER_MM, full, LANDSCAPE_STYLE)))
+
+    def floor(lv_i):
+        def draw():
+            lv = b.levels[lv_i]
+            SH.column_grid(cv, b, T, k)
+            _plan(cv, b, lv_i, T, k)
+            if lv_i == 0:
+                SH.cut_marks(cv, b, T)
+            ext = [w for w in b.walls if w.level == lv_i]
+            if ext:  # overall dimensions along the bottom and the left
+                ex0, ex1 = min(min(w.a[0], w.b[0]) - w.thickness / 2 for w in ext), max(max(w.a[0], w.b[0]) + w.thickness / 2 for w in ext)
+                ey0, ey1 = min(min(w.a[1], w.b[1]) - w.thickness / 2 for w in ext), max(max(w.a[1], w.b[1]) + w.thickness / 2 for w in ext)
+                _dim(cv, T(ex1, ey0), T(ex0, ey0), 22, f"{ex1 - ex0:.2f} m")
+                _dim(cv, T(ex0, ey0), T(ex0, ey1), 22, f"{ey1 - ey0:.2f} m")
+            area = sum(B.area(s.outline) for s in b.slabs if s.level == lv_i)
+            cv.setFillColor(DARK)
+            cv.setFont("Helvetica", 9)
+            cv.drawString(M + 10, H - M - 18, f"Floor level {lv.elevation:+.2f} m   Height {lv.height:.2f} m   Floor area {area:,.1f} m²")
+            SH.north_arrow(cv, W - M - 24, H - M - 40)
+        return draw
     for lv_i, lv in enumerate(b.levels):
-        _frame(cv, d, st, f"{lv.name} plan", lv_i + 1, total, n)
-        _plan(cv, b, lv_i, T, k)
-        ext = [w for w in b.walls if w.level == lv_i]
-        if ext:  # overall dimensions along the bottom and the left
-            ex0, ex1 = min(min(w.a[0], w.b[0]) - w.thickness / 2 for w in ext), max(max(w.a[0], w.b[0]) + w.thickness / 2 for w in ext)
-            ey0, ey1 = min(min(w.a[1], w.b[1]) - w.thickness / 2 for w in ext), max(max(w.a[1], w.b[1]) + w.thickness / 2 for w in ext)
-            _dim(cv, T(ex1, ey0), T(ex0, ey0), 22, f"{ex1 - ex0:.2f} m")
-            _dim(cv, T(ex0, ey0), T(ex0, ey1), 22, f"{ey1 - ey0:.2f} m")
-        area = sum(B.area(s.outline) for s in b.slabs if s.level == lv_i)
-        cv.setFillColor(DARK)
-        cv.setFont("Helvetica", 9)
-        cv.drawString(M + 10, H - M - 18, f"Floor level {lv.elevation:+.2f} m   Height {lv.height:.2f} m   Floor area {area:,.1f} m²")
-        cv.drawRightString(W - M - 10, H - M - 18, "N ↑")
-        cv.showPage()
-    if b.landscape:
-        _landscape_page(cv, d, st, b, total - 3, total)
-        cv.showPage()
-    # elevations: the front and the back a sheet each, as large as they fit; the two sides share a sheet
+        pages.append((f"{lv.name} plan", n, floor(lv_i)))
+
+    def notes(lines):
+        y = M + 60
+        for line in [x for x in lines if x][::-1]:
+            SH._text(cv, M + 14, y, "• " + line, 7.5)
+            y += 11
+    pages.append(("Foundation plan", n, lambda: notes(SH.foundation_plan(cv, b, T, k, d.info.site.bearing_capacity))))
+    if b.columns and len(b.levels) > 1:
+        pages.append(("Structural layout and schedules (preliminary)", n, lambda: SH.structural_sheet(cv, d, _scale, PT_PER_MM, full)))
+        pages.append(("Typical structural details (preliminary)", None, lambda: SH.details_sheet(cv, d, full)))
+    pages.append(("Roof plan", n, lambda: notes(SH.roof_plan(cv, b, T, k, (services.layout(d).get("water") or {}).get("roof")))))
+    pages.append(("Drainage and water plan", None, lambda: SH.drainage_sheet(cv, d, _scale, PT_PER_MM, full)))
+    pages.append(("Fire safety plan", n, lambda: SH.fire_sheet(cv, d, _plan, T, k, full)))
+    sh = (H - 2 * M - 100) / 2
+    pages.append(("Sections", None, lambda: (SH.section(cv, b, "x", (M + 14, M + 74 + sh, W - 2 * M - 28, sh - 14), "Section A-A (looking north)", _scale, PT_PER_MM, d.info.site.bearing_capacity),
+                                             SH.section(cv, b, "y", (M + 14, M + 64, W - 2 * M - 28, sh - 14), "Section B-B (looking west)", _scale, PT_PER_MM, d.info.site.bearing_capacity))))
     ew, eh = W - 2 * M - 28, H - 2 * M - 80
-    sheets = [[("south", "South (front) elevation", (M + 14, M + 60, ew, eh))],
-              [("north", "North elevation", (M + 14, M + 60, ew, eh))],
-              [("east", "East elevation", (M + 14, M + 60, ew / 2 - 10, eh)),
-               ("west", "West elevation", (M + 14 + ew / 2 + 10, M + 60, ew / 2 - 10, eh))]]
-    for i, views in enumerate(sheets):
-        _frame(cv, d, st, "Elevations" if i < 2 else "Elevations (sides)", total - 2 + i, total, None)
-        for view, label, box in views:
-            _elevation(cv, b, view, box, label)
-        if i < 2:
-            cv.showPage()
-    cv.showPage()
+    pages.append(("Elevations", None, lambda: _elevation(cv, b, "south", (M + 14, M + 60, ew, eh), "South (front) elevation")))
+    pages.append(("Elevations", None, lambda: _elevation(cv, b, "north", (M + 14, M + 60, ew, eh), "North elevation")))
+    pages.append(("Elevations (sides)", None, lambda: (_elevation(cv, b, "east", (M + 14, M + 60, ew / 2 - 10, eh), "East elevation"),
+                                                       _elevation(cv, b, "west", (M + 14 + ew / 2 + 10, M + 60, ew / 2 - 10, eh), "West elevation"))))
+    pages.append(("Schedules and compliance", None, lambda: SH.schedules(cv, d, (M + 14, M + 60, W - 2 * M - 28, H - 2 * M - 80))))
+    total = len(pages)
+    for i, (title, scale, draw) in enumerate(pages):
+        got = draw()  # sheets that fit their own drawing return its scale (sections: one per drawing)
+        if title in ("Foundation plan", "Roof plan", "Fire safety plan") or title.startswith("Structural"):
+            SH.north_arrow(cv, W - M - 24, H - M - 40)
+        if scale is None and isinstance(got, int):
+            scale = got
+        elif scale is None and isinstance(got, tuple) and got and len(set(got)) == 1 and isinstance(got[0], int):
+            scale = got[0]
+        _frame(cv, d, st, title, i + 1, total, scale)
+        cv.showPage()
     cv.save()
     return buf.getvalue()

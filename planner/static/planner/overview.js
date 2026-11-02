@@ -179,6 +179,7 @@ function renderOvReport() {
   const secs = S.st?.sector?.construction  // the sections of the building report (ftth/exporters/report.py)
     ? [["Introduction", i.introduction], ["Site & brief", i.site?.soil || i.site?.client_brief || i.site?.schedule?.length],
        ["The building", D.building?.walls?.length], ["Bill of quantities", D.building?.walls?.length],
+       ["Planning & code compliance", D.building?.walls?.length && D.info.boundary.length],
        ["Quality checks & recommendations", i.recommendations]]
     : [["Introduction", i.introduction], ["Survey findings", i.findings], ["Proposed solution", i.proposed_solution],
        ["Cable routing & installation", D.cables.some((c) => c.status === "proposed")], ["Equipment locations", D.nodes.length],

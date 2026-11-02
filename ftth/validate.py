@@ -153,6 +153,8 @@ def validate(d: Design) -> list[dict]:
         priced = bool(bom) and all(ln.rate for ln in bom if ln.qty)  # budget against a fully priced BOQ only
         issues.extend(building.site_checks(d.info.site, d.building, calc.boq_total(bom) if priced else None,
                                            d.info.currency))
+        from . import compliance
+        issues.extend(compliance.check(d))
 
     # ---- materials -----------------------------------------------------------
     for line in calc.bom(d):

@@ -18,7 +18,7 @@ from .model import Design
 MAX_ACTIONS = 12
 _BLOCK = re.compile(r"```(?:actions|json)?\s*(\[[\s\S]*?\]|\{[\s\S]*?\})\s*```", re.I)
 
-KIND_NAMES = {"flower_bed": "flower beds", "lawn": "lawn", "shrub_bed": "shrub beds", "paving": "paving",
+KIND_NAMES = {"flower_bed": "flower beds", "lawn": "lawn", "shrub_bed": "shrub beds", "paving": "paving", "parking": "car parking",
               "hedge": "hedge", "tree": "trees"}
 INFO_FIELDS = ("name", "client", "area", "region")
 FTTH_RULES = ("default_fat_ports", "default_fat_split", "default_pon_split", "fat_load_take_rate", "cable_extra_pct",
@@ -34,7 +34,8 @@ end your answer with ONE fenced block in exactly this form:
 The planner sees the changes and presses Apply; nothing changes until then. Use only these operations:
 - {"op": "add_landscape", "kind": "flower_bed"|"lawn"|"shrub_bed"|"paving", "around": "building", "width": 1.5, "gap": 1.0}
   (strips all round the building, gap m from the walls, kept clear of the entrances)
-- {"op": "add_landscape", "kind": "flower_bed"|"lawn"|"shrub_bed"|"paving", "rect": [x0, y0, x1, y1]}
+- {"op": "add_landscape", "kind": "flower_bed"|"lawn"|"shrub_bed"|"paving"|"parking", "rect": [x0, y0, x1, y1]}
+  (parking: rows of 2.5 x 5 m bays along the rect's long side; 5 m deep = one row, 10 m = two)
 - {"op": "add_landscape", "kind": "hedge", "points": [[x, y], [x, y], ...]}
 - {"op": "add_trees", "around": "building", "offset": 6, "spacing": 8}  or  {"op": "add_trees", "points": [[x, y], ...]}
 - {"op": "remove_landscape", "kind": "tree"}  (leave out kind to remove all landscaping)
@@ -49,7 +50,10 @@ The planner sees the changes and presses Apply; nothing changes until then. Use 
 - {"op": "set_info", "name": "...", "client": "...", "area": "...", "region": "..."}
 - {"op": "set_site", "soil": ""|"rock"|"murram / gravel"|"sand"|"clay"|"black cotton"|"made ground / fill",
   "bearing_capacity": kN/m2, "water_table": m, "slope": %, "ground_level": m, "survey_notes": "...",
-  "client_brief": "...", "occupants": n, "budget": amount, "schedule": [{"name": "Ward", "count": 40, "area": 28}]}
+  "client_brief": "...", "occupants": n, "budget": amount, "schedule": [{"name": "Ward", "count": 40, "area": 28}],
+  "plot_ref": "LR ...", "zone": "...", "max_coverage": %, "max_plot_ratio": %, "max_floors": n, "setback_front": m,
+  "setback_side": m, "setback_rear": m, "parking_per_unit": n, "architect": "...", "architect_reg": "...",
+  "engineer": "...", "engineer_reg": "..."}
   (the site survey and the client's brief; room names as the plans use them)
 - {"op": "fill_rates"}  (indicative 2026 KES rates for materials with no rate; own prices are kept)
 Coordinates are metres on the building's plan: x east, y north, from the building's south-west corner (see
@@ -130,7 +134,7 @@ def _brief(a: dict, keep: tuple = ()) -> B.AutoParams:
 def _landscape(b: B.Building, a: dict) -> list[B.Landscape]:
     kind = a.get("kind")
     if kind not in KIND_NAMES or kind == "tree":
-        raise EditError("add_landscape: kind must be flower_bed, lawn, shrub_bed, paving or hedge")
+        raise EditError("add_landscape: kind must be flower_bed, lawn, shrub_bed, paving, parking or hedge")
     note = str(a.get("note") or "")[:120]
     if kind == "hedge":
         pts = _pts(a, least=2)

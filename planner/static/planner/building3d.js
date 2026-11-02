@@ -123,7 +123,7 @@ function mats() {
     stair: tm("concrete", 2.4), column: m(0x8d949c), cut: m(0x3b4148), sel: m(0x00b7ff, { emissive: 0x003a55 }), ghost: m(0x00b7ff, { transparent: true, opacity: 0.35 }),
     soil: tm("soil", 1), lawn: tm("lawn", 3), paving: tm("paving", 0.8), hedge: tm("leaf", 1.2), ground: tm("grass", 6, { roughness: 1 }),
     trunk: m(0x5b4330, { roughness: 1 }), leaves: [tm("leaf", 1.5), tm("leaf", 1.5, { color: 0xb8d68a }), tm("leaf", 1.5, { color: 0x8fb070 })],
-    flowers: [m(0xe0457b), m(0xf2c230), m(0xd92e2e), m(0xf4f0f6), m(0x9b59d0)],
+    flowers: [m(0xe0457b), m(0xf2c230), m(0xd92e2e), m(0xf4f0f6), m(0x9b59d0)], line: m(0xf4f4f0),
   });
   return MAT;
 }
@@ -214,6 +214,8 @@ function roofMesh(b, r) {
   const lv = lvlOf(b, r.level), ze = lv.elevation + lv.height, o = r.overhang;
   const X0 = r.x0 - o, X1 = r.x1 + o, Y0 = r.y0 - o, Y1 = r.y1 + o;
   const t = Math.tan(r.pitch * Math.PI / 180);
+  if (r.kind === "arch") return archMesh(r, ze, X0, X1, Y0, Y1, t);
+  if (r.kind === "dome") return domeMesh(r, ze, X0, X1, Y0, Y1, t);
   // work in (along, across) with the ridge along "along"
   const alongX = r.ridge === "x";
   const A0 = alongX ? X0 : Y0, A1 = alongX ? X1 : Y1, C0 = alongX ? Y0 : X0, C1 = alongX ? Y1 : X1;
@@ -241,14 +243,134 @@ function roofMesh(b, r) {
   return tag(new THREE.Mesh(g, r.covering === "tiles" ? mats().roofTile : mats().roofSheet), "roof", r.id);
 }
 
-function stairMeshes(b, st, group) {
-  const lv = lvlOf(b, st.level), n = Math.max(1, Math.ceil(lv.height / st.max_riser - 1e-9)), rise = lv.height / n;
-  const a = st.angle * Math.PI / 180, ux = Math.cos(a), uy = Math.sin(a);
-  for (let i = 0; i < n; i++) {  // solid steps, each reaching the ground
-    const s0 = i * st.tread, s1 = s0 + st.tread;
-    const m = boxAlong([st.x, st.y], [st.x + ux, st.y + uy], s0, s1, lv.elevation, lv.elevation + (i + 1) * rise, st.width, mats().stair);
-    group.add(tag(m, "stair", st.id));
+// a pointed vault (ftth/building.py arch_profile): its curved surface, and its two end walls as vertical fins
+// with glazing between (the facade carried up into the crown)
+function archProfile(c0, c1, rise, n = 16) {
+  const a = (c1 - c0) / 2;
+  if (!(a > 0) || !(rise > 0)) return [[c0, 0], [c1, 0]];
+  const rad = (rise * rise + a * a) / (2 * a), left = [];
+  for (let k = 0; k <= n; k++) left.push([c0 + a * k / n, Math.sqrt(Math.max(0, rad * rad - (rad - a * k / n) ** 2))]);
+  const right = left.slice(0, -1).reverse().map(([c, z]) => [c1 - (c - c0), z]);
+  return left.concat(right);
+}
+function archMesh(r, ze, X0, X1, Y0, Y1, t) {
+  const alongX = r.ridge === "x";
+  const A0 = alongX ? X0 : Y0, A1 = alongX ? X1 : Y1, C0 = alongX ? Y0 : X0, C1 = alongX ? Y1 : X1;
+  const P = (a, c, z) => alongX ? [a, c, z] : [c, a, z];
+  const prof = archProfile(C0, C1, (C1 - C0) / 2 * t);
+  const grp = new THREE.Group();
+  const meshOf = (tris, mat) => {
+    const pos = [];
+    for (const tri of tris) for (const [x, y, z] of tri) pos.push(x, z, -y);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    return tag(new THREE.Mesh(g, mat), "roof", r.id);
+  };
+  const shell = [];
+  for (let i = 0; i + 1 < prof.length; i++) {  // the curved surface, strip by strip along the ridge
+    const [c, z] = prof[i], [c2, z2] = prof[i + 1];
+    shell.push([P(A0, c, ze + z), P(A1, c, ze + z), P(A1, c2, ze + z2)], [P(A0, c, ze + z), P(A1, c2, ze + z2), P(A0, c2, ze + z)]);
   }
+  grp.add(meshOf(shell, mats().wall));
+  // the end walls: fins every 2.4 m (0.9 m solid), glass between, each strip up to the arch
+  const zAt = (c) => {
+    for (let i = 0; i + 1 < prof.length; i++) {
+      const [ca, za] = prof[i], [cb, zb] = prof[i + 1];
+      if (c >= ca - 1e-9 && c <= cb + 1e-9) return za + (zb - za) * (c - ca) / Math.max(1e-9, cb - ca);
+    }
+    return 0;
+  };
+  const fins = [], glass = [], step = 2.4, fin = 0.9;
+  for (const A of [A0, A1]) {
+    for (let c = C0; c < C1 - 1e-6; c += step) {
+      const cuts = [[c, Math.min(C1, c + fin), fins], [Math.min(C1, c + fin), Math.min(C1, c + step), glass]];
+      for (const [ca, cb, out] of cuts) {
+        if (cb - ca < 1e-6) continue;
+        const za = ze + zAt(ca), zb = ze + zAt(cb);
+        out.push([P(A, ca, ze), P(A, cb, ze), P(A, cb, zb)], [P(A, ca, ze), P(A, cb, zb), P(A, ca, za)]);
+      }
+    }
+  }
+  grp.add(meshOf(fins, mats().wall));
+  grp.add(meshOf(glass, mats().glass));
+  return grp;
+}
+
+// a pointed dome (ftth/building.py dome_rings): rings from the springing to the apex, each side of each band
+// cut into fins and glass (the facade carried up over the crown)
+function domeRings(r, X0, X1, Y0, Y1, t, n = 16) {  // ftth/building.py dome_rings
+  const ax = (X1 - X0) / 2, ay = (Y1 - Y0) / 2, xc = (X0 + X1) / 2;
+  const span = r.ridge === "y" ? 2 * ax : 2 * ay, rise = span / 2 * t;
+  const capx = Math.min(r.cap || 0, 2 * ax), capy = Math.min(r.cap || 0, 2 * ay), lean = r.lean || 0;
+  const fz = [];
+  if (r.profile === "round") for (let k = 0; k <= n; k++) fz.push([Math.cos(Math.PI / 2 * k / n), rise * Math.sin(Math.PI / 2 * k / n)]);
+  else for (const [c, z] of archProfile(0, 2 * ax, rise, n).slice(0, n + 1)) fz.push([(ax - c) / ax, z]);
+  return fz.map(([f, z]) => {
+    const wx = capx + (2 * ax - capx) * f, wy = capy + (2 * ay - capy) * f, y0 = Y0 + (2 * ay - wy) * (1 - lean) / 2;
+    return [xc - wx / 2, xc + wx / 2, y0, y0 + wy, z];
+  });
+}
+function domeMesh(r, ze, X0, X1, Y0, Y1, t) {
+  const rings = domeRings(r, X0, X1, Y0, Y1, t);
+  const fins = [], glass = [], solid = [];
+  const corner = (g, k) => [[g[0], g[2]], [g[1], g[2]], [g[1], g[3]], [g[0], g[3]]][k].concat([ze + g[4]]);
+  const ax = (X1 - X0) / 2, ay = (Y1 - Y0) / 2;
+  for (let i = 0; i + 1 < rings.length; i++) {
+    const g0 = rings[i], g1 = rings[i + 1];
+    for (let s = 0; s < 4; s++) {  // each side of the band, in fin and glass strips along it
+      const a = corner(g0, s), b2 = corner(g0, (s + 1) % 4), c = corner(g1, (s + 1) % 4), d = corner(g1, s);
+      const L = Math.hypot(b2[0] - a[0], b2[1] - a[1]), m = Math.max(1, Math.round(((s % 2 === 0) ? 2 * ax : 2 * ay) / 2.4));
+      const lerp = (p, q, f) => [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f, p[2] + (q[2] - p[2]) * f];
+      for (let j = 0; j < m; j++) {
+        const f0 = j / m, f1 = (j + 0.375) / m, f2 = (j + 1) / m;
+        for (const [g0, g1, out] of [[f0, f1, fins], [f1, f2, glass]]) {
+          const p = lerp(a, b2, g0), q = lerp(a, b2, g1), q2 = lerp(d, c, g1), p2 = lerp(d, c, g0);
+          out.push([p, q, q2], [p, q2, p2]);
+        }
+      }
+      if (L < 1e-6) continue;
+    }
+  }
+  const top = rings[rings.length - 1], tz = ze + top[4];  // the flat cap, and the mast on it
+  solid.push([[top[0], top[2], tz], [top[1], top[2], tz], [top[1], top[3], tz]], [[top[0], top[2], tz], [top[1], top[3], tz], [top[0], top[3], tz]]);
+  const grp = new THREE.Group();
+  if (r.mast > 0) {
+    const mx = (top[0] + top[1]) / 2, my = (top[2] + top[3]) / 2;
+    grp.add(tag(boxAlong([mx, my - 0.2], [mx, my + 0.2], 0, 0.4, tz, tz + r.mast, 0.4, mats().frame), "roof", r.id));
+  }
+  for (const [tris, mat] of [[fins, mats().wall], [glass, mats().glass], [solid, mats().wall]]) {
+    const pos = [];
+    for (const tri of tris) for (const [x, y, z] of tri) pos.push(x, z, -y);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    const mt = mat.clone();
+    mt.side = THREE.DoubleSide;
+    grp.add(tag(new THREE.Mesh(g, mt), "roof", r.id));
+  }
+  return grp;
+}
+
+function stairMeshes(b, st, group) {  // ftth/building.py stair_flights: one flight, or a dog-leg with its half landing
+  const lv = lvlOf(b, st.level), n = Math.max(1, Math.ceil(lv.height / st.max_riser - 1e-9)), rise = lv.height / n;
+  const a = st.angle * Math.PI / 180, ux = Math.cos(a), uy = Math.sin(a), rx = Math.sin(a), ry = -Math.cos(a);
+  const flight = (x, y, dx, dy, steps, first) => {
+    for (let i = 0; i < steps; i++) {  // solid steps, each reaching the floor below the flight
+      const s0 = i * st.tread, s1 = s0 + st.tread;
+      const m = boxAlong([x, y], [x + dx, y + dy], s0, s1, lv.elevation + first * rise, lv.elevation + (first + i + 1) * rise, st.width, mats().stair);
+      group.add(tag(m, "stair", st.id));
+    }
+  };
+  if ((st.flights || 1) < 2) return flight(st.x, st.y, ux, uy, n, 0);
+  const n1 = Math.ceil(n / 2), L1 = n1 * st.tread, off = st.width + 0.1;
+  flight(st.x, st.y, ux, uy, n1, 0);
+  const lz = lv.elevation + n1 * rise;  // the half landing, across both flights
+  const ls = boxAlong([st.x - rx * st.width / 2 + ux * (L1 + st.width / 2), st.y - ry * st.width / 2 + uy * (L1 + st.width / 2)],
+    [st.x + rx * (off + st.width / 2) + ux * (L1 + st.width / 2), st.y + ry * (off + st.width / 2) + uy * (L1 + st.width / 2)],
+    0, off + st.width, lz - 0.15, lz, st.width, mats().stair);
+  group.add(tag(ls, "stair", st.id));
+  flight(st.x + rx * off + ux * L1, st.y + ry * off + uy * L1, -ux, -uy, n - n1, n1);
 }
 
 // landscaping in the compound: beds of soil with plants and flowers in them, lawns and paving, leafy hedges, and
@@ -291,6 +413,12 @@ function landscapeMeshes(b, g) {
       }
     } else if (x.kind === "lawn") add(box(x0, y0, x1, y1, 0, 0.03, M.lawn));
     else if (x.kind === "paving") add(box(x0, y0, x1, y1, 0, 0.06, M.paving));
+    else if (x.kind === "parking") {  // paving with white bay lines every 2.5 m along its long side
+      add(box(x0, y0, x1, y1, 0, 0.06, M.paving));
+      const alongX = x1 - x0 >= y1 - y0;
+      for (let s = alongX ? x0 : y0; s <= (alongX ? x1 : y1) + 1e-6; s += 2.5)
+        add(alongX ? box(s - 0.05, y0, s + 0.05, y1, 0.06, 0.07, M.line) : box(x0, s - 0.05, x1, s + 0.05, 0.06, 0.07, M.line));
+    }
     else if (x.kind === "hedge") for (let i = 1; i < P.length; i++) {
       const L = Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
       add(boxAlong(P[i - 1], P[i], 0, L, 0, 1.0, 0.6, M.hedge));
@@ -707,7 +835,7 @@ const PROPS = {
   column: [["size", "number"], ["x", "number"], ["y", "number"]],
   stair: [["width", "number"], ["angle", "number"], ["tread", "number"], ["max_riser", "number"], ["x", "number"], ["y", "number"]],
   slab: [["thickness", "number"]],
-  roof: [["kind", ["gable", "hip", "shed", "flat"]], ["pitch", "number"], ["overhang", "number"], ["ridge", ["x", "y"]],
+  roof: [["kind", ["gable", "hip", "shed", "flat", "arch", "dome"]], ["pitch", "number"], ["overhang", "number"], ["ridge", ["x", "y"]],
     ["covering", ["iron sheets", "tiles", "concrete"]]],
   landscape: [["kind", ["flower_bed", "lawn", "shrub_bed", "paving", "hedge", "tree"]]],
 };
@@ -750,7 +878,7 @@ const AUTO = [["use", "Building use (names the rooms)", ["general", "house", "of
   ["rooms_x", "Rooms across", 2], ["rooms_y", "Rooms deep", 2], ["external_wall", "External wall (m)", 0.2], ["internal_wall", "Internal wall (m)", 0.15],
   ["material", "Walls", ["block", "brick", "stone", "concrete"]], ["window_spacing", "A window every (m)", 3], ["window_width", "Window width (m)", 1.2],
   ["window_height", "Window height (m)", 1.2], ["window_style", "Windows", ["casement", "sliding", "fixed", "hung"]], ["door_style", "Main door", ["single", "double", "sliding", "arched"]],
-  ["roof", "Roof", ["gable", "hip", "shed", "flat"]], ["pitch", "Roof pitch (deg)", 25], ["overhang", "Overhang (m)", 0.6],
+  ["roof", "Roof", ["gable", "hip", "shed", "flat", "arch", "dome"]], ["pitch", "Roof pitch (deg)", 25], ["overhang", "Overhang (m)", 0.6],
   ["covering", "Covering", ["iron sheets", "tiles", "concrete"]], ["parapet", "Parapet on a flat roof (m)", 1.0],
   ["columns", "Concrete frame (columns)", false]];
 const BLOCK = [["x", "Block corner x, east (m)", 0], ["y", "Block corner y, north (m)", 0], ["start_floor", "Starts at floor (0 = ground)", 0]];
@@ -900,20 +1028,26 @@ const SITE = [["soil", "Soil", ["", "rock", "murram / gravel", "sand", "clay", "
   ["bearing_capacity", "Safe bearing capacity (kN/m², 0 = not tested)"], ["water_table", "Ground water depth (m, 0 = not found)"],
   ["slope", "Fall across the plot (%)"], ["ground_level", "Ground level (m above datum)"], ["survey_notes", "Survey notes", "text"],
   ["client_brief", "Client brief", "text"], ["occupants", "Occupants (people)"], ["budget", "Budget"],
-  ["schedule", "Rooms required: one per line, name, count, m² each (e.g. Ward, 40, 28)", "text"]];
+  ["schedule", "Rooms required: one per line, name, count, m² each (e.g. Ward, 40, 28)", "text"],
+  ["plot_ref", "Plot (LR / title number)", "line"], ["zone", "Planning zone", "line"],
+  ["max_coverage", "Ground coverage limit (%)"], ["max_plot_ratio", "Plot ratio limit (%)"], ["max_floors", "Floors limit"],
+  ["setback_front", "Building line, front (m)"], ["setback_side", "Building line, sides (m)"], ["setback_rear", "Building line, rear (m)"],
+  ["parking_per_unit", "Car spaces per flat"], ["architect", "Architect", "line"], ["architect_reg", "Architect's registration (BORAQS)", "line"],
+  ["engineer", "Structural engineer", "line"], ["engineer_reg", "Engineer's registration (EBK)", "line"]];
 function renderSiteForm() {
   const st = S.D.info.site || (S.D.info.site = {}), cur = S.D.info.currency || "";
   const val = (k) => k === "schedule" ? (st.schedule || []).map((r) => [r.name, r.count, r.area || ""].filter((x) => x !== "").join(", ")).join("\n") : st[k] ?? "";
   $("#bldSiteForm").innerHTML = SITE.map(([k, t, kind]) => Array.isArray(kind)
     ? `<label>${t}<select data-site="${k}">${kind.map((x) => `<option value="${esc(x)}" ${x === (st[k] || "") ? "selected" : ""}>${esc(x || "not recorded")}</option>`).join("")}</select></label>`
     : kind === "text" ? `<label>${t}<textarea data-site="${k}" rows="${k === "schedule" ? 4 : 2}">${esc(val(k))}</textarea></label>`
+    : kind === "line" ? `<label>${t}<input data-site="${k}" value="${esc(val(k))}"></label>`
     : `<label>${k === "budget" ? `${t} (${esc(cur)}, 0 = none)` : t}<input data-site="${k}" type="number" step="any" min="0" value="${esc(val(k))}"></label>`).join("");
   $$("[data-site]").forEach((i) => i.addEventListener("change", () => {
     const k = i.dataset.site;
     if (k === "schedule") {
       st.schedule = i.value.split(/\n/).map((l) => l.split(",").map((x) => x.trim())).filter((r) => r[0])
         .map(([name, count, area]) => ({ name: name.slice(0, 60), count: Math.max(0, parseInt(count, 10) || 1), area: Math.max(0, parseFloat(area) || 0) }));
-    } else st[k] = i.tagName === "SELECT" || i.tagName === "TEXTAREA" ? i.value : Math.max(0, +i.value || 0);
+    } else st[k] = i.tagName === "SELECT" || i.tagName === "TEXTAREA" || i.type === "text" ? i.value : Math.max(0, +i.value || 0);
     changed(false);
   }));
 }

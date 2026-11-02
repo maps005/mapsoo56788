@@ -75,7 +75,7 @@ def test_the_report_has_the_site_the_brief_and_the_cost_per_m2():
     d.info.site = B.Site(soil="clay", bearing_capacity=150, client_brief="Offices for 120 staff", budget=5e7,
                          schedule=[{"name": "Office", "count": 10, "area": 12}])
     secs = {s.title: s for s in report.sections(d)}
-    assert "2. Site and Brief" in secs and "5. Quality Checks and Recommendations" in secs
+    assert "2. Site and Brief" in secs and "6. Quality Checks and Recommendations" in secs and "5. Planning and Building Code Compliance" in secs
     text = repr(secs["2. Site and Brief"].__dict__)
     assert "clay" in text and "150 kN/m²" in text and "Offices for 120 staff" in text and "Office" in text
     assert "Cost per m²" in repr(report.sections(d)[0].__dict__)

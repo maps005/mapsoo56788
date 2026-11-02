@@ -920,7 +920,7 @@ def qa_pdf(d: Design, st: Stamp) -> bytes:
         Paragraph("Validation issues", STYLES["Heading2"])]
     if issues:
         t = _table(["Severity", "Check", "Feature", "Issue"],
-                   [[x["severity"], x["code"], x.get("ref") or "", Paragraph(markup(x["message"]), STYLES["BodyText"])]
+                   [[x["severity"], x["code"], x.get("ref") or "", x["message"]]
                     for x in issues], [18 * mm, 32 * mm, 26 * mm, 110 * mm])
         t.setStyle(TableStyle([("TEXTCOLOR", (0, r), (0, r), C("#c00000")) for r, x in enumerate(issues, 1)
                                if x["severity"] == "error"]))

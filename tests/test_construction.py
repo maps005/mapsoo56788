@@ -1,5 +1,6 @@
 """Construction sector: buildings designed automatically, edited, measured, checked and drawn."""
 import io
+import math
 import zipfile
 
 import pytest
@@ -79,7 +80,7 @@ def test_plans_report_and_package_are_the_buildings():
     st = stamp(d, 1)
     pages = PdfReader(io.BytesIO(plans.build_plans_pdf(d, st))).pages
     text = " ".join(p.extract_text() for p in pages)
-    assert len(pages) == 5 and "Ground floor plan" in text and "Floor 1 plan" in text and "South (front) elevation" in text
+    assert len(pages) == 11 and "Ground floor plan" in text and "Foundation plan" in text and "Section A-A" in text and "Fire safety plan" in text and "Drainage and water plan" in text and "Floor 1 plan" in text and "South (front) elevation" in text
     assert "12.00 m" in text and "Scale 1:" in text
     titles = [s.title for s in report.sections(d)]
     assert titles[2] == "2. Site and Brief" and titles[3] == "3. The Building" and "FTTH" not in " ".join(titles)
@@ -155,9 +156,12 @@ def test_bigger_buildings_get_a_corridor_with_rooms_off_it():
     assert names.count("Ward") >= 20 and "Corridor" in names and "Lift and lobby" in names and "Nurse station" in names
     assert "Reception" in [r.name for r in b.rooms if r.level == 0]
     # every room on a floor opens onto the corridor: a door in a corridor wall per room
-    corr = [w for w in b.walls if w.level == 1 and w.kind == "internal" and abs(w.a[1] - w.b[1]) < 1e-6
-            and abs(w.b[0] - w.a[0]) > 50]
-    assert len(corr) == 2
+    lines = {}  # the corridor walls run the length of the block, in segments (RC across the stair cores)
+    for w in b.walls:
+        if w.level == 1 and w.kind == "internal" and abs(w.a[1] - w.b[1]) < 1e-6:
+            lines.setdefault(round(w.a[1], 3), []).append(w)
+    corr = [w for ws in lines.values() if sum(abs(w.b[0] - w.a[0]) for w in ws) > 50 for w in ws]
+    assert len({round(w.a[1], 3) for w in corr}) == 2
     doors = sum(1 for o in b.openings if o.kind == "door" and o.wall in {w.id for w in corr})
     assert doors == len([r for r in b.rooms if r.level == 1 and r.name != "Corridor"])
     assert sum(1 for s in b.stairs if s.level == 0) == 2  # two ways out of a 60 m block
@@ -169,3 +173,22 @@ def test_bigger_buildings_get_a_corridor_with_rooms_off_it():
     assert "Corridor" not in [r.name for r in home.rooms] and "Living room" in [r.name for r in home.rooms]
     pdf = PdfReader(io.BytesIO(plans.build_plans_pdf(d, stamp(d, 1))))
     assert "WARD" in pdf.pages[1].extract_text() and "Corridor" in pdf.pages[1].extract_text()
+
+
+@pytest.mark.parametrize("kind", ["arch", "dome"])
+def test_pointed_crowns_are_measured_and_drawn(kind):
+    """A pointed vault (arch) or pointed dome crown: its rise sets the building's height, it is priced, and every
+    sheet draws it (a tower's mihrab-shaped crown)."""
+    d = house(width=20, depth=12, floors=3, roof="flat")
+    b = d.building
+    b.roofs = [B.Roof(id="R1", level=2, x0=0, y0=0, x1=20, y1=12, kind=kind, pitch=60, overhang=0, ridge="y",
+                      covering="concrete")]
+    g = B.roof_geometry(b.roofs[0])
+    assert abs(g["rise"] - 10 * math.tan(math.radians(60))) < 1e-6 and g["area"] > 20 * 12
+    prof = B.arch_profile(0, 20, g["rise"])
+    assert prof[0] == (0, 0.0) and abs(max(z for _, z in prof) - g["rise"]) < 1e-6 and abs(prof[-1][0] - 20) < 1e-9
+    assert abs(B.top_height(b) - (b.levels[2].elevation + b.levels[2].height + g["rise"])) < 1e-6
+    codes = {c for c, _, _ in B.quantities(b)}
+    assert "STEEL-STRUCT" in codes and "ROOF-TIMBER" not in codes
+    pdf = plans.build_plans_pdf(d, stamp(d, 1))
+    assert len(PdfReader(io.BytesIO(pdf)).pages) >= 5
