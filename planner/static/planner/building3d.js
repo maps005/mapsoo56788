@@ -895,9 +895,33 @@ $$("[data-bx]").forEach((btn) => btn.addEventListener("click", async () => {
 }));
 
 // ---- tab entry, keys, level list ---------------------------------------------------------------------------
+// the site survey and the client's brief (ProjectInfo.site): QA checks the design against them
+const SITE = [["soil", "Soil", ["", "rock", "murram / gravel", "sand", "clay", "black cotton", "made ground / fill"]],
+  ["bearing_capacity", "Safe bearing capacity (kN/m², 0 = not tested)"], ["water_table", "Ground water depth (m, 0 = not found)"],
+  ["slope", "Fall across the plot (%)"], ["ground_level", "Ground level (m above datum)"], ["survey_notes", "Survey notes", "text"],
+  ["client_brief", "Client brief", "text"], ["occupants", "Occupants (people)"], ["budget", "Budget"],
+  ["schedule", "Rooms required: one per line, name, count, m² each (e.g. Ward, 40, 28)", "text"]];
+function renderSiteForm() {
+  const st = S.D.info.site || (S.D.info.site = {}), cur = S.D.info.currency || "";
+  const val = (k) => k === "schedule" ? (st.schedule || []).map((r) => [r.name, r.count, r.area || ""].filter((x) => x !== "").join(", ")).join("\n") : st[k] ?? "";
+  $("#bldSiteForm").innerHTML = SITE.map(([k, t, kind]) => Array.isArray(kind)
+    ? `<label>${t}<select data-site="${k}">${kind.map((x) => `<option value="${esc(x)}" ${x === (st[k] || "") ? "selected" : ""}>${esc(x || "not recorded")}</option>`).join("")}</select></label>`
+    : kind === "text" ? `<label>${t}<textarea data-site="${k}" rows="${k === "schedule" ? 4 : 2}">${esc(val(k))}</textarea></label>`
+    : `<label>${k === "budget" ? `${t} (${esc(cur)}, 0 = none)` : t}<input data-site="${k}" type="number" step="any" min="0" value="${esc(val(k))}"></label>`).join("");
+  $$("[data-site]").forEach((i) => i.addEventListener("change", () => {
+    const k = i.dataset.site;
+    if (k === "schedule") {
+      st.schedule = i.value.split(/\n/).map((l) => l.split(",").map((x) => x.trim())).filter((r) => r[0])
+        .map(([name, count, area]) => ({ name: name.slice(0, 60), count: Math.max(0, parseInt(count, 10) || 1), area: Math.max(0, parseFloat(area) || 0) }));
+    } else st[k] = i.tagName === "SELECT" || i.tagName === "TEXTAREA" ? i.value : Math.max(0, +i.value || 0);
+    changed(false);
+  }));
+}
+
 async function renderBuilding(full) {
   if (!isConstruction()) return;
   if (!BLD.formMade) makeAutoForm();
+  if (!$("#bldSiteForm").contains(document.activeElement)) renderSiteForm();
   const b = S.D.building;
   $("#bldLevel").innerHTML = (b?.levels || [{ name: "Ground floor" }]).map((l, k) => `<option value="${k}" ${k === BLD.level ? "selected" : ""}>${esc(l.name)}</option>`).join("");
   if (!b?.walls?.length) { $("#bldProps").innerHTML = ""; bmsg("No building yet: set the brief and press Design the building, or draw the walls."); }

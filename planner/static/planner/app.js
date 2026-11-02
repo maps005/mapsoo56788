@@ -789,6 +789,18 @@ $("#priceFile").addEventListener("change", async (e) => {
   } catch (err) { toast(err.message, 6000); }
 });
 $("#resetMaterials").onclick = () => loadDefaults("materials");
+$("#fillRates").onclick = async () => {  // indicative rates for the items with none (ftth/rates.py)
+  if (!S.pid) return;
+  try {
+    const st = await serverOp(`/api/projects/${S.pid}/indicative-rates`, { method: "POST" });
+    const r = st.rates;
+    $("#priceReport").textContent = r.filled.length || r.added.length
+      ? `${r.filled.length} item(s) priced at indicative rates${r.added.length ? `, ${r.added.length} item(s) added from the catalogue` : ""}.
+${r.note}.`
+      : "Every item already has a rate.";
+    renderMaterials();
+  } catch (err) { toast(err.message, 6000); }
+};
 $("#addMaterial").onclick = () => { S.D.materials.push({ code: "NEW-ITEM", description: "", unit: "ea", rate: 0, category: "General" }); changed(false); renderMaterials(); };
 $("#addAdj").onclick = () => { S.D.adjustments.push({ code: S.D.materials[0]?.code || "", qty: 0, reason: "", by: "" }); changed(false); renderMaterials(); };
 

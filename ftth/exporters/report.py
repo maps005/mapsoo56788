@@ -107,7 +107,8 @@ def _building_sections(d: Design) -> list[Section]:
     ex.cards([("Floors", str(len(b.levels))), ("Gross floor area", f"{gross:,.0f} m²"),
               ("Walls", f"{len(b.walls)}"), ("Doors / windows", f"{sum(o.kind == 'door' for o in b.openings)} / "
                                                              f"{sum(o.kind == 'window' for o in b.openings)}"),
-              ("BOQ estimate", f"{i.currency} {total:,.0f}")])
+              ("BOQ estimate", f"{i.currency} {total:,.0f}")]
+             + ([("Cost per m²", f"{i.currency} {total / gross:,.0f}")] if total and gross else []))
     ex.p(f"This report covers the design and quantities of {i.name or 'the building'}"
          + (f" in {i.area}" if i.area else "") + (f" for {i.client}" if i.client else "") + ". "
          f"The quality checks report {qa['errors']} error(s) and {qa['warnings']} warning(s).")
@@ -117,9 +118,37 @@ def _building_sections(d: Design) -> list[Section]:
     intro.kv([["Project", i.name], ["Site", i.area], ["Client", i.client], ["Prepared by", i.prepared_by],
               ["Located on the map", "yes" if b.origin else "not yet"]])
     out.append(intro)
-    bld = Section("2. The Building")
+    st = i.site
+    site = Section("2. Site and Brief")
+    site.h("2.1 Ground conditions")
+    if st.recorded():
+        site.kv([["Soil", st.soil or "not recorded"],
+                 ["Safe bearing capacity", f"{st.bearing_capacity:g} kN/m²" if st.bearing_capacity else "not tested"],
+                 ["Ground water", f"{st.water_table:g} m below ground" if st.water_table else "not found / not recorded"],
+                 ["Fall across the plot", f"{st.slope:g} %"], ["Ground level", f"{st.ground_level:g} m above datum"]])
+        site.text(st.survey_notes)
+    else:
+        site.p("Ground conditions have not been recorded: a soil investigation (trial pits, bearing capacity, ground "
+               "water) is needed before the foundations are designed.")
+    site.h("2.2 The client's brief")
+    site.text(st.client_brief or "No brief has been recorded.")
+    rows = [["Occupants", f"{st.occupants:,}" if st.occupants else "-"],
+            ["Budget", f"{i.currency} {st.budget:,.0f}" if st.budget else "not given"]]
+    if st.budget and total:
+        rows.append(["BOQ estimate against the budget", f"{total / st.budget:.0%}"])
+    site.kv(rows)
+    if st.schedule:
+        have: dict[str, list] = {}
+        for r in b.rooms:
+            have.setdefault(r.name.lower(), []).append(r)
+        site.table(["Room", "Required", "Designed", "Area each (brief)", "Smallest designed"],
+                   [[x.name, x.count, len(have.get(x.name.lower(), [])), f"{x.area:g} m²" if x.area else "-",
+                     f"{min(r.area for r in have[x.name.lower()]):g} m²" if have.get(x.name.lower()) else "-"]
+                    for x in st.schedule])
+    out.append(site)
+    bld = Section("3. The Building")
     bld.text(i.proposed_solution)
-    bld.h("2.1 Levels")
+    bld.h("3.1 Levels")
     bld.table(["Level", "Floor level", "Height", "Floor area", "Walls", "Doors", "Windows"],
               [[lv.name, f"{lv.elevation:+.2f} m", f"{lv.height:.2f} m",
                 f"{sum(B.area(s.outline) for s in b.slabs if s.level == k):,.1f} m²",
@@ -128,28 +157,29 @@ def _building_sections(d: Design) -> list[Section]:
                 sum(o.kind == "window" and b.wall(o.wall) and b.wall(o.wall).level == k for o in b.openings)]
                for k, lv in enumerate(b.levels)])
     if b.roofs:
-        bld.h("2.2 Roofs")
+        bld.h("3.2 Roofs")
         bld.table(["Roof", "Type", "Pitch", "Covering", "Covered area", "Ridge + hips", "Eaves"],
                   [[r.id, r.kind, f"{r.pitch:g}°", r.covering, f"{B.roof_geometry(r)['area']:,.1f} m²",
                     f"{B.roof_geometry(r)['ridge'] + B.roof_geometry(r)['hips']:,.1f} m",
                     f"{B.roof_geometry(r)['eaves']:,.1f} m"] for r in b.roofs])
     sp = b.spec
-    bld.h("2.3 Specification")
+    bld.h("3.3 Specification")
     bld.kv([["Strip footings", f"{sp.footing_width:g} m wide, {sp.footing_thickness:g} m thick, "
                                f"excavated {sp.excavation_depth:g} m"],
             ["Hardcore under the ground slab", f"{sp.hardcore:g} m"], ["Reinforcement", f"{sp.rebar_kg_per_m3:g} kg/m³"],
             ["Plaster and render", "yes" if sp.plaster else "no"], ["Setback from the plot boundary", f"{sp.setback:g} m"]])
     out.append(bld)
-    mat = Section("3. Bill of Quantities Summary")
+    mat = Section("4. Bill of Quantities Summary")
     mat.table(["Item", "Unit", "Quantity", "Rate", "Amount"],
               [[ln.description, ln.unit, f"{ln.qty:,.2f}", f"{ln.rate:,.2f}" if ln.rate is not None else "not priced",
                 f"{ln.total:,.2f}" if ln.total is not None else "-"] for ln in bom if ln.qty] +
               [["Total", "", "", "", f"{total:,.2f}"]], total=True)
     unpriced = sum(1 for ln in bom if ln.qty and not ln.rate)
     if unpriced:
-        mat.p(f"{unpriced} item(s) have no rate yet: add them in Materials & rules.")
+        mat.p(f"{unpriced} item(s) have no rate yet: import a price list in Materials & rules, or press Fill missing "
+              f"rates there for indicative rates.")
     out.append(mat)
-    con = Section("4. Quality Checks and Recommendations")
+    con = Section("5. Quality Checks and Recommendations")
     con.text(i.recommendations)
     errs = [x for x in issues if x["severity"] in ("error", "warning")]
     if errs:

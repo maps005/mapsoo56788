@@ -222,6 +222,10 @@
   <section id="tab-building" class="tab">
     <div class="bldwrap">
       <aside class="bldside">
+        <details id="bldSite" class="bldsite"><summary>Site survey &amp; client brief</summary>
+          <p class="muted">Ground conditions the foundations depend on, and what the building must provide: QA checks the
+            design against them and the report includes them.</p>
+          <div id="bldSiteForm" class="form"></div></details>
         <h3>Auto design</h3>
         <p class="muted">A building made to your numbers: walls, rooms, doors and windows, slabs, stairs and roof. It
           replaces the current building (its place on the map is kept); then edit it by hand.</p>
@@ -369,6 +373,7 @@
     <div class="grid2">
       <div class="card"><div class="row"><h3>Material catalogue</h3><span class="spacer"></span><button id="resetMaterials">Load company catalogue</button>
         <label class="filebtn" title="Update rates from a price list or BOQ template (Excel); new items are added">Import price list<input type="file" id="priceFile" accept=".xlsx,.xlsm" hidden></label>
+        <button id="fillRates" title="Fill items that have no rate with indicative 2026 Kenya rates (KES); your own prices are kept">Fill missing rates</button>
         <button id="addMaterial">Add item</button></div>
         <pre id="priceReport" class="report"></pre>
         <div id="materialsTable" class="tablewrap"></div></div>

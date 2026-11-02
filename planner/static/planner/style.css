@@ -457,3 +457,8 @@ dialog.sharedlg::backdrop { background: rgba(10,20,35,.45); }
 .aiacts button { font-size: 12px; padding: 4px 10px; }
 .aidone { color: #1d7a3a; font-weight: 600; }
 .aidone.muted { color: var(--muted); font-weight: 400; }
+
+/* Building 3D: the site survey and client brief */
+.bldsite { margin: 0 0 10px; border: 1px solid var(--line, #d8dee6); border-radius: 6px; padding: 6px 8px; background: #f7f9fb; }
+.bldsite summary { cursor: pointer; font-weight: 600; }
+.bldsite textarea { width: 100%; font: inherit; font-size: 12px; }

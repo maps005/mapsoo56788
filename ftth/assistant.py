@@ -97,6 +97,7 @@ def project_context(d: Design) -> str:
                       if b else [],
             "spec": b.spec.model_dump() if b else None,
             "footprint": _footprint_ctx(b) if b else None,
+            "site_and_brief": d.info.site.model_dump(),
             "landscape": [{"id": x.id, "kind": x.kind, "points": x.points[:8], "note": x.note}
                           for x in b.landscape][:40] if b else [],
             "boq_total": s["boq_total"],

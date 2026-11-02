@@ -363,6 +363,21 @@ def import_prices(request, pid):
     return JsonResponse(st | {"prices": report})
 
 
+@api("POST")
+def indicative_rates(request, pid):
+    """Give the materials with no rate an indicative rate (KES), so a first BOQ has figures; the company's own
+    prices are never overwritten."""
+    from ftth import rates
+
+    def run(d):
+        try:
+            return rates.fill(d)
+        except rates.RateError as e:
+            raise ApiError(400, str(e))
+    st, report = _operate(request, pid, run)
+    return JsonResponse(st | {"rates": report})
+
+
 @api("GET")
 def survey_template(request):
     """Blank Excel workbook for uploading survey data (poles, homes, equipment, splitters, cables)."""

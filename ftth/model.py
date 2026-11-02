@@ -13,7 +13,7 @@ import re
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
-from .building import Building
+from .building import Building, Site
 
 Status = Literal["existing", "proposed"]
 NodeKind = Literal["POP", "ENCLOSURE", "PR_ENCLOSURE", "JB", "PON", "FAT", "SLACK"]
@@ -347,6 +347,7 @@ class CadLayer(BaseModel):
 
 class ProjectInfo(BaseModel):
     name: str = "New FTTH project"
+    site: Site = Field(default_factory=Site)  # construction: ground conditions and the client's brief
     area: str = ""
     client: str = ""
     prepared_by: str = ""

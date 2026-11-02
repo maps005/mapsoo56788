@@ -82,7 +82,7 @@ def test_plans_report_and_package_are_the_buildings():
     assert len(pages) == 5 and "Ground floor plan" in text and "Floor 1 plan" in text and "South (front) elevation" in text
     assert "12.00 m" in text and "Scale 1:" in text
     titles = [s.title for s in report.sections(d)]
-    assert titles[2] == "2. The Building" and "FTTH" not in " ".join(titles)
+    assert titles[2] == "2. Site and Brief" and titles[3] == "3. The Building" and "FTTH" not in " ".join(titles)
     with zipfile.ZipFile(io.BytesIO(package.build_package(d, st, None))) as z:
         folders = {n.split("/")[0] for n in z.namelist()}
     assert "02_Plans" in folders and not {"01_HLD", "02_LLD", "06_Splicing"} & folders

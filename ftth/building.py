@@ -110,6 +110,31 @@ class Column(BaseModel):
     size: float = Field(default=0.3, gt=0.1, le=2)
 
 
+class BriefRoom(BaseModel):
+    """A line of the client's schedule of accommodation: so many rooms of a kind (named as on the plans)."""
+    name: str = Field(max_length=60)
+    count: int = Field(default=1, ge=0, le=2000)
+    area: float = Field(default=0.0, ge=0, le=5000)  # each, m2 (0: any)
+
+
+class Site(BaseModel):
+    """The site survey and the client's brief: ground conditions the foundations depend on, and what the
+    building must provide."""
+    soil: Literal["", "rock", "murram / gravel", "sand", "clay", "black cotton", "made ground / fill"] = ""
+    bearing_capacity: float = Field(default=0.0, ge=0, le=5000)   # safe bearing pressure, kN/m2 (0: not tested)
+    water_table: float = Field(default=0.0, ge=0, le=100)         # depth below ground, m (0: not found / not known)
+    slope: float = Field(default=0.0, ge=0, le=100)               # fall across the plot, %
+    ground_level: float = Field(default=0.0, ge=-500, le=6000)    # ground level at the building, m above datum
+    survey_notes: str = Field(default="", max_length=2000)
+    client_brief: str = Field(default="", max_length=4000)
+    occupants: int = Field(default=0, ge=0, le=100000)
+    budget: float = Field(default=0.0, ge=0)                       # in the project's currency (0: none given)
+    schedule: list[BriefRoom] = Field(default_factory=list, max_length=100)
+
+    def recorded(self) -> bool:
+        return bool(self.soil or self.bearing_capacity or self.water_table or self.survey_notes)
+
+
 class Spec(BaseModel):
     """Construction standards the quantities follow (edit per project)."""
     footing_width: float = Field(default=0.6, gt=0.2, le=3)
@@ -860,6 +885,71 @@ def quantities(b: Building) -> list[tuple[str, float, str]]:
 # ---------------------------------------------------------------------------------------------------------
 # checks
 # ---------------------------------------------------------------------------------------------------------
+def _overlapping_walls(b: Building, add) -> None:
+    """Two walls on the same line and level that overlap: one is drawn twice (counted twice in the BOQ)."""
+    lines: dict[tuple, list] = {}
+    for w in b.walls:
+        L = length(w)
+        if L < 0.1:
+            continue
+        ux, uy = (w.b[0] - w.a[0]) / L, (w.b[1] - w.a[1]) / L
+        if ux < -1e-9 or (abs(ux) < 1e-9 and uy < 0):
+            ux, uy = -ux, -uy
+        off = round(-uy * w.a[0] + ux * w.a[1], 2)  # distance of the line from the origin
+        key = (w.level, round(ux, 3), round(uy, 3), off)
+        s0, s1 = sorted((ux * w.a[0] + uy * w.a[1], ux * w.b[0] + uy * w.b[1]))
+        lines.setdefault(key, []).append((s0, s1, w))
+    for segs in lines.values():
+        segs.sort(key=lambda t: t[0])
+        for (a0, a1, w1), (b0, b1, w2) in zip(segs, segs[1:]):
+            if min(a1, b1) - b0 > 0.3:
+                add("error", "bld_wall_overlap", f"Walls {w1.id} and {w2.id} overlap by {min(a1, b1) - b0:.2f} m "
+                                                 f"(a wall drawn twice is counted twice)", w2.id)
+
+
+def site_checks(st: Site, b: Optional[Building], boq_total: Optional[float] = None, currency: str = "") -> list[dict]:
+    """The design against the site survey and the client's brief (st: the project's ProjectInfo.site)."""
+    issues, sp = [], (b.spec if b is not None else Spec())
+
+    def add(sev, code, msg, ref=None):
+        issues.append({"severity": sev, "code": code, "message": msg, "ref": ref})
+    if not st.recorded():
+        add("info", "bld_no_ground", "Ground conditions are not recorded yet (Building 3D: Site & brief)")
+    if st.soil in ("black cotton", "made ground / fill"):
+        add("warning", "bld_soil", f"{st.soil.capitalize()} soil: strip footings are not enough - an engineer "
+                                   f"designs the foundations (raft, piles or excavation to firm ground)")
+    if b is None or not b.walls:
+        return issues
+    if st.bearing_capacity and len(b.levels):
+        load = 12.0 * len(b.levels)  # rough wall line load per storey, kN/m, for a quick footing check
+        need = load / max(sp.footing_width, 0.1)
+        if need > st.bearing_capacity:
+            add("warning", "bld_bearing", f"Footings {sp.footing_width:g} m wide put about {need:.0f} kN/m² on ground "
+                                          f"rated {st.bearing_capacity:g} kN/m²: widen them to "
+                                          f"{load / st.bearing_capacity:.2f} m or more (engineer to confirm)")
+    if st.water_table and st.water_table < sp.excavation_depth + 0.3:
+        add("warning", "bld_water_table", f"Ground water at {st.water_table:g} m is within reach of the "
+                                          f"{sp.excavation_depth:g} m excavation: allow for dewatering and tanking")
+    if st.slope > 10:
+        add("warning", "bld_slope", f"The plot falls {st.slope:g} %: allow for cut and fill or stepped footings")
+    if st.budget and boq_total and boq_total > st.budget:
+        add("warning", "bld_budget", f"The BOQ estimate ({currency} {boq_total:,.0f}) is over the client's budget "
+                                     f"({currency} {st.budget:,.0f}) by {boq_total / st.budget - 1:.0%}")
+    have: dict[str, int] = {}
+    for r in b.rooms:
+        have[r.name.lower()] = have.get(r.name.lower(), 0) + 1
+    for want in st.schedule:
+        got = have.get(want.name.lower(), 0)
+        if want.count and got < want.count:
+            add("warning", "bld_brief_rooms", f"The brief asks for {want.count} {want.name}, the design has {got}")
+        if want.area:
+            small = [r for r in b.rooms if r.name.lower() == want.name.lower() and r.area and r.area < want.area * 0.95]
+            if small:
+                add("warning", "bld_brief_area", f"{len(small)} {want.name} room(s) are smaller than the "
+                                                 f"{want.area:g} m² in the brief", small[0].id)
+    return issues
+
+
 def check(b: Building, boundary: Optional[list[list[float]]] = None) -> list[dict]:
     """Building checks; boundary is the plot on the map ([lat, lon] points) for the setback check."""
     issues = []
@@ -892,6 +982,7 @@ def check(b: Building, boundary: Optional[list[list[float]]] = None) -> list[dic
         for p, q in zip(ops, ops[1:]):
             if q.offset - q.width / 2 < p.offset + p.width / 2 + 0.1:
                 add("error", "bld_opening_overlap", f"Openings {p.id} and {q.id} overlap in wall {w.id}", q.id)
+    _overlapping_walls(b, add)
     for o in b.openings:
         if not b.wall(o.wall):
             add("error", "bld_opening_wall", f"Opening {o.id} is in unknown wall {o.wall}", o.id)

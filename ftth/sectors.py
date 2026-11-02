@@ -367,7 +367,8 @@ SECTORS: dict[str, dict] = {
         "steps": [
             ("Site Survey & Brief", ["Plot boundary on the map", "Levels & ground conditions", "Client brief & rooms",
                                      "Photos & site notes"]),
-            _STEPS_CLEAN,
+            ("Model Checks", ["No wall drawn twice", "Openings fit their walls", "Levels, headroom & stairs",
+                              "Design against the brief"]),
             ("Building Design (3D)", ["Auto design from the brief", "Walls, doors & windows", "Floors, stairs & roof",
                                       "Place on the site plan"]),
             ("Quantities & Materials", ["Concrete, blocks, steel", "Roofing & finishes", "Doors & windows",

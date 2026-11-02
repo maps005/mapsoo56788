@@ -59,8 +59,10 @@ function renderSteps() {
     !lld?.last ? "" : lld.stale ? "warn" : "ok");
   if (sec?.construction) {  // a building, not a network: the site, the design and its plans
     const b = D.building, walls = b?.walls?.length || 0, plans = o.plans;
-    set(1, D.info.boundary.length ? `Plot boundary drawn${b?.origin ? " · building placed" : ""}` : "No plot boundary yet (Site plan)",
-      D.info.boundary.length ? "ok" : "warn");
+    const site = D.info.site || {}, ground = !!(site.soil || site.bearing_capacity || site.water_table || site.survey_notes);
+    const brief = !!(site.client_brief || site.schedule?.length);
+    set(1, [D.info.boundary.length ? "Plot boundary drawn" : "No plot boundary yet", ground ? "ground recorded" : "no ground conditions",
+      brief ? "brief set" : "no brief"].join(" · "), D.info.boundary.length && ground && brief ? "ok" : "warn");
     set(2, c.errors ? `${c.errors} error(s) to fix` : walls ? "Clean" : "Waiting for the design", c.errors ? "err" : walls ? "ok" : "warn");
     set(3, walls ? `${b.levels.length} floor(s) · ${walls} walls · ${b.openings.length} doors & windows` : "No building yet", walls ? "ok" : "");
     set(5, !plans?.last ? "Plans PDF not generated yet" : plans.stale ? "Needs regenerating" : "Plans up to date",
@@ -175,7 +177,8 @@ function renderOvReport() {
   const i = S.D.info, D = S.D;
   const photo = D.photos[0];
   const secs = S.st?.sector?.construction  // the sections of the building report (ftth/exporters/report.py)
-    ? [["Introduction", i.introduction], ["The building", D.building?.walls?.length], ["Bill of quantities", D.building?.walls?.length],
+    ? [["Introduction", i.introduction], ["Site & brief", i.site?.soil || i.site?.client_brief || i.site?.schedule?.length],
+       ["The building", D.building?.walls?.length], ["Bill of quantities", D.building?.walls?.length],
        ["Quality checks & recommendations", i.recommendations]]
     : [["Introduction", i.introduction], ["Survey findings", i.findings], ["Proposed solution", i.proposed_solution],
        ["Cable routing & installation", D.cables.some((c) => c.status === "proposed")], ["Equipment locations", D.nodes.length],

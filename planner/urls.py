@@ -26,6 +26,7 @@ urlpatterns = [
     path("company/<int:cid>/logo", views.company_logo, name="company_logo"),
     path(f"{P}/import", views.import_data),
     path(f"{P}/prices", views.import_prices),
+    path(f"{P}/indicative-rates", views.indicative_rates),
     path(f"{P}/assign-homes", views.assign_homes),
     path(f"{P}/allocate", views.allocate),
     path(f"{P}/auto-design", views.auto_design),

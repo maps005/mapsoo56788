@@ -47,6 +47,11 @@ The planner sees the changes and presses Apply; nothing changes until then. Use 
   other; leave it out for 1.8 m, 2.4 m in a hospital)
 - {"op": "set_spec", "footing_width": 0.6, "excavation_depth": 0.9, "setback": 3, "plaster": true, ...}
 - {"op": "set_info", "name": "...", "client": "...", "area": "...", "region": "..."}
+- {"op": "set_site", "soil": ""|"rock"|"murram / gravel"|"sand"|"clay"|"black cotton"|"made ground / fill",
+  "bearing_capacity": kN/m2, "water_table": m, "slope": %, "ground_level": m, "survey_notes": "...",
+  "client_brief": "...", "occupants": n, "budget": amount, "schedule": [{"name": "Ward", "count": 40, "area": 28}]}
+  (the site survey and the client's brief; room names as the plans use them)
+- {"op": "fill_rates"}  (indicative 2026 KES rates for materials with no rate; own prices are kept)
 Coordinates are metres on the building's plan: x east, y north, from the building's south-west corner (see
 "footprint" in the summary). The compound is the ground round the footprint. Never invent other operations or
 fields; when a request cannot be done with them, say so and point to the app's tools instead.
@@ -60,7 +65,8 @@ fenced block:
 [{"op": "set_info", "name": "...", "client": "...", "area": "...", "region": "..."},
  {"op": "set_rules", "default_fat_ports": 16, "cable_extra_pct": 5}]
 ```
-set_rules accepts only: """ + ", ".join(FTTH_RULES) + """. The planner presses Apply; nothing changes until then.
+set_rules accepts only: """ + ", ".join(FTTH_RULES) + """. {"op": "fill_rates"} gives materials with no rate an
+indicative 2026 Kenya rate (KES; own prices are kept). The planner presses Apply; nothing changes until then.
 Drawing and routing changes are made with the app's tools (Auto-design, Auto-allocate, the map), not by you.
 """
 
@@ -172,6 +178,10 @@ def describe(a: dict) -> str:
         return ("Redesign the building: " + ", ".join(f"{k} {v}" for k, v in a.items() if k != "op"))[:300]
     if op == "add_block":
         return ("Add a block: " + ", ".join(f"{k} {v}" for k, v in a.items() if k != "op"))[:300]
+    if op == "fill_rates":
+        return "Fill the materials that have no rate with indicative 2026 Kenya rates (KES)"
+    if op == "set_site":
+        return ("Site survey & brief: " + ", ".join(f"{k} = {v}" for k, v in a.items() if k != "op"))[:300]
     if op in ("set_spec", "set_info", "set_rules"):
         what = {"set_spec": "Construction standards", "set_info": "Project details", "set_rules": "Design rules"}[op]
         return f"{what}: " + ", ".join(f"{k} = {v}" for k, v in a.items() if k != "op")
@@ -198,6 +208,22 @@ def apply(d: Design, actions: list) -> list[str]:
             for k in INFO_FIELDS:
                 if k in a:
                     setattr(d.info, k, str(a[k])[:200])
+        elif op == "fill_rates":
+            from . import rates
+            try:
+                rates.fill(d)
+            except rates.RateError as e:
+                raise EditError(f"fill_rates: {e}") from None
+        elif op == "set_site" and construction:
+            fields = {k: v for k, v in a.items() if k != "op"}
+            bad = [k for k in fields if k not in B.Site.model_fields]
+            if bad:
+                raise EditError(f"set_site: unknown field(s) {', '.join(bad)}")
+            try:
+                d.info.site = B.Site.model_validate(d.info.site.model_dump() | fields)
+            except ValidationError as e:
+                er = e.errors(include_url=False)[0]
+                raise EditError(f"set_site: {'.'.join(str(x) for x in er.get('loc', []))}: {er.get('msg')}") from None
         elif op == "set_rules" and not construction:
             for k, v in a.items():
                 if k == "op":
