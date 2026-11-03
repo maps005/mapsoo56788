@@ -21,7 +21,7 @@ SCALES = [50, 100, 200, 250, 300, 500, 1000]
 GREY, DARK = colors.HexColor("#555555"), colors.HexColor("#1f2933")
 
 
-def _frame(cv, d: Design, st: Stamp, title: str, page: int, total: int, scale: int | None):
+def _frame(cv, d: Design, st: Stamp, title: str, page: int, total: int, scale: int | str | None):
     cv.setFillColor(colors.black)
     cv.setStrokeColor(colors.black)
     cv.setLineWidth(1)
@@ -39,9 +39,15 @@ def _frame(cv, d: Design, st: Stamp, title: str, page: int, total: int, scale: i
     if site.architect or site.engineer or site.plot_ref:  # who signs, and the plot
         cv.setFont("Helvetica", 6.5)
         mid = W * 0.52
-        cv.drawString(mid, M + 30, clean(f"Plot: {site.plot_ref or '-'}" + (f"   Zone: {site.zone}" if site.zone else ""))[:110])
-        cv.drawString(mid, M + 20, clean(f"Architect: {site.architect or '-'} {('(' + site.architect_reg + ')') if site.architect_reg else ''}")[:80])
-        cv.drawString(mid, M + 10, clean(f"Engineer: {site.engineer or '-'} {('(' + site.engineer_reg + ')') if site.engineer_reg else ''}")[:80])
+        lines = []  # only what the project has: a dam has no plot reference or architect
+        if site.plot_ref or site.zone:
+            lines.append(f"Plot: {site.plot_ref or '-'}" + (f"   Zone: {site.zone}" if site.zone else ""))
+        if site.architect:
+            lines.append(f"Architect: {site.architect} {('(' + site.architect_reg + ')') if site.architect_reg else ''}")
+        if site.engineer:
+            lines.append(f"Engineer: {site.engineer} {('(' + site.engineer_reg + ')') if site.engineer_reg else ''}")
+        for k, line in enumerate(lines):
+            cv.drawString(mid, M + 30 - 10 * k, clean(line)[:110])
     if site.architect or site.engineer:  # room for the professionals' seals
         cv.setStrokeColor(colors.HexColor("#9aa5b1"))
         cv.setLineWidth(0.5)
@@ -54,7 +60,7 @@ def _frame(cv, d: Design, st: Stamp, title: str, page: int, total: int, scale: i
         cv.setFillColor(colors.black)
         cv.setFont("Helvetica", 8)
     cv.drawRightString(W - M - 8, M + 28, f"Sheet {page} of {total}")
-    cv.drawRightString(W - M - 8, M + 12, f"Scale 1:{scale} (A3)" if scale else "Not to scale")
+    cv.drawRightString(W - M - 8, M + 12, scale if isinstance(scale, str) else f"Scale 1:{scale} (A3)" if scale else "Not to scale")
 
 
 def _scale(width_m: float, height_m: float, box_w: float, box_h: float) -> int:

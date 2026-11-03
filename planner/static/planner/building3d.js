@@ -1109,7 +1109,7 @@ function placeBuilding(lat, lon) {
 $("#bldRot").addEventListener("change", (e) => { if (S.D.building) { S.D.building.rotation = +e.target.value || 0; changed(); } });
 function renderOvBuilding() {
   const box = $("#ovBuilding");
-  if (!box || !isConstruction()) return;
+  if (!box || !isConstruction() || S.st?.sector?.dam) return;
   const b = S.D.building;
   if (!b?.walls.length) { box.innerHTML = `<p class="muted" style="padding:10px">No building yet: open Building 3D and press Design the building.</p>`; return; }
   const area = (poly) => Math.abs(poly.reduce((a, p, k) => { const q = poly[(k + 1) % poly.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;

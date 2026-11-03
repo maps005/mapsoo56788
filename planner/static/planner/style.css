@@ -261,6 +261,15 @@ details.layers label { color: #dbe4ee !important; font-size: 12px; }
 .cadbar + .cadbar { margin-top: 4px; }
 /* Building 3D (construction) */
 .bldwrap { display: flex; gap: 10px; align-items: stretch; }
+.damres { flex: 1; min-width: 0; background: #fff; border: 1px solid #dde3ea; border-radius: 8px; padding: 10px 14px; overflow: auto; }
+.damgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.damgrid table { width: 100%; }
+.damsvgs > svg { flex: 1 1 300px; min-width: 0; }
+.damsvgs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.damsvg { width: 100%; max-width: 560px; background: #fbfcfd; border: 1px solid #e5e9ee; border-radius: 6px; }
+.damsvgs .damsvg:nth-child(2) { max-width: 270px; }
+#damForm textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+@media (max-width: 900px) { .damgrid { grid-template-columns: 1fr; } }
 .bldside { width: 300px; flex: none; max-height: calc(100vh - 230px); overflow: auto; background: #fff; border: 1px solid #dde3ea;
   border-radius: 8px; padding: 10px 12px; }
 .bldside h3 { margin: 8px 0 4px; }

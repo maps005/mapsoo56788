@@ -57,7 +57,16 @@ function renderSteps() {
   const o = st.outputs || {}, lld = o.lld;
   set(5, !lld?.last ? "DXF / PDF not generated yet" : lld.stale ? "Needs regenerating" : "DXF / PDF up to date",
     !lld?.last ? "" : lld.stale ? "warn" : "ok");
-  if (sec?.construction) {  // a building, not a network: the site, the design and its plans
+  if (sec?.dam) {  // a dam: the survey and hydrology, the checks, the design and its drawings
+    const dm = D.dam, z = s.dam, dw = o.dam_drawings;
+    const survey = !!(dm?.axis?.length >= 2 && dm?.reservoir?.length >= 2), hydro = !!(dm?.catchment_km2 && (dm?.rain_24h || dm?.design_flood));
+    set(1, [survey ? "Axis & reservoir surveyed" : "No survey yet", hydro ? "hydrology set" : "no hydrology"].join(" · "), survey && hydro ? "ok" : "warn");
+    const fails = (z?.stability || []).filter((x) => !x.ok).length;
+    set(2, c.errors ? `${c.errors} error(s) to fix` : z?.designed ? (fails ? `${fails} stability case(s) failing` : "Freeboard, stability, spillway OK") : "Waiting for the survey",
+      c.errors || fails ? "err" : z?.designed ? "ok" : "warn");
+    set(3, z?.designed ? `${z.height} m high · crest ${z.crest.toFixed(2)} m · ${fmt(z.storage)} m3` : "No dam yet", z?.designed ? "ok" : "");
+    set(5, !dw?.last ? "Drawings not generated yet" : dw.stale ? "Needs regenerating" : "Drawings up to date", !dw?.last ? "" : dw.stale ? "warn" : "ok");
+  } else if (sec?.construction) {  // a building, not a network: the site, the design and its plans
     const b = D.building, walls = b?.walls?.length || 0, plans = o.plans;
     const site = D.info.site || {}, ground = !!(site.soil || site.bearing_capacity || site.water_table || site.survey_notes);
     const brief = !!(site.client_brief || site.schedule?.length);
@@ -94,6 +103,7 @@ async function renderOverview() {
   drawOvMap();
   drawLld($("#ovLld"), false);
   if (typeof renderOvBuilding === "function") renderOvBuilding();
+  if (typeof renderOvDam === "function") renderOvDam();
   renderOvReport();
   renderFileIcons();
   $("#ovLegend").innerHTML = legend().map(([k, t, cls]) => `<span><i class="${cls}" style="background:${COL[k]}"></i>${t}</span>`).join("") +
@@ -199,8 +209,13 @@ function renderFileIcons() {
   const o = S.st?.outputs || {};
   let fresh = 0;
   const t = S.st?.sector;
-  const files = t?.construction  // construction: plans instead of the network drawings
-    ? [["Plans & Elevations", "PDF", "plans.pdf", "#c62828", "plans"], ...FILES.filter((f) => ["bom", "boq", "report", "qa"].includes(f[4]))]
+  const files = t?.dam  // dams: the drawings and the design report
+    ? [["Dam Drawings", "PDF", "dam_drawings.pdf", "#c62828", "dam_drawings"], ["Design Report", "PDF", "dam_report.pdf", "#c62828", "dam_report"],
+       ...FILES.filter((f) => ["bom", "boq", "qa"].includes(f[4]))]
+    : t?.construction  // construction: plans instead of the network drawings
+    ? [["Plans & Elevations", "PDF", "plans.pdf", "#c62828", "plans"], ...FILES.filter((f) => ["bom", "boq", "report", "qa"].includes(f[4])),
+       ["Bar Bending Schedule", "XLS", "bbs.xlsx", "#217346", "bbs"], ["Structural Calcs", "PDF", "calcs.pdf", "#c62828", "calcs"],
+       ["Schedules", "XLS", "schedules.xlsx", "#217346", "schedules"], ["BIM Model", "IFC", "ifc.ifc", "#6a1b9a", "ifc"]]
     : t && !t.fibre_tools  // other sectors: no splicing diagram; the pole summary is their schedule
     ? FILES.filter((f) => f[4] !== "splicing").map((f) => f[4] === "pole_summary" ? [`${t.support} Schedule`, ...f.slice(1)] : f)
     : FILES;

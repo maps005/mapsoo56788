@@ -513,8 +513,9 @@ def _norm_desc(s) -> str:
 
 def vsquared_boq_xlsx(d: Design, st: Stamp) -> bytes:
     """The BOQ in the company template: Section A implementation and Section B materials with live formulas."""
-    if not TEMPLATE_BOQ.exists():
-        return boq_xlsx(d, st)
+    from .. import sectors
+    if not TEMPLATE_BOQ.exists() or not sectors.get(d.info.sector).get("fibre_tools", True):
+        return boq_xlsx(d, st)  # the template's Section A and approval block are a fibre network's
     wb = load_workbook(TEMPLATE_BOQ)
     ws = wb["BOQ"]
     i = d.info

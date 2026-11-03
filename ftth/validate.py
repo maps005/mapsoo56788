@@ -147,7 +147,11 @@ def validate(d: Design) -> list[dict]:
     if d.building is not None:
         from . import building
         issues.extend(building.check(d.building, d.info.boundary))
-    if sectors.get(d.info.sector).get("construction"):
+    if sectors.get(d.info.sector).get("dam"):
+        from . import dam as dam_
+        for sev, code, msg in dam_.check(d.dam):
+            add(sev, code, msg)
+    elif sectors.get(d.info.sector).get("construction"):
         from . import building
         bom = calc.bom(d)
         priced = bool(bom) and all(ln.rate for ln in bom if ln.qty)  # budget against a fully priced BOQ only

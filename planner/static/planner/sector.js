@@ -10,10 +10,13 @@ function applySector() {
   document.body.dataset.sector = t?.key || "fibre";
   $$("[data-fibre-only], [data-tab='splicing']").forEach((e) => { e.hidden = !fibre; });
   // construction: a building instead of a network (Building 3D tab, site plan, no LLD / network tools)
-  const build = !!t?.construction;
+  const build = !!t?.construction, dam = !!t?.dam;  // dams: no building either, the Dam tab instead
   $$("[data-network-only]").forEach((e) => { e.hidden = build; });
-  $$("[data-construction-only]").forEach((e) => { e.hidden = !build; });
-  if ((build && ["lld", "splicing"].includes(activeTab())) || (!build && activeTab() === "building")) $("[data-tab='overview']").click();
+  $$("[data-construction-only]").forEach((e) => { e.hidden = !build || dam; });
+  $$("[data-dam-only]").forEach((e) => { e.hidden = !dam; });
+  $$("[data-nodam], [data-tab='report']").forEach((e) => { e.hidden = dam; });
+  if ((build && ["lld", "splicing"].includes(activeTab())) || ((!build || dam) && activeTab() === "building")
+      || (!dam && activeTab() === "dam") || (dam && activeTab() === "report")) $("[data-tab='overview']").click();
 
   // workflow steps
   $$("#steps > li").forEach((li, i) => {

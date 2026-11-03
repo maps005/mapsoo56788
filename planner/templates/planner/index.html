@@ -77,6 +77,7 @@
   <button data-tab="data">Survey &amp; validation</button>
   <button data-tab="map">HLD map</button>
   <button data-tab="building" data-construction-only hidden>Building 3D</button>
+  <button data-tab="dam" data-dam-only hidden>Dam design</button>
   <button data-tab="materials">Materials &amp; rules</button>
   <button data-tab="lld" data-network-only>LLD drawing</button>
   <button data-tab="schedules">Pole summary · BOM · BOQ</button>
@@ -93,6 +94,11 @@
       <div class="panel"><h2><span>1.</span> BUILDING <small>(3D design)</small></h2>
         <div id="ovBuilding" class="ovtable"></div>
         <div class="pfoot"><a data-dl="plans.pdf">Plans &amp; elevations PDF</a><button data-go="building">Open Building 3D</button></div></div>
+    </div>
+    <div class="ovgrid" data-dam-only hidden>
+      <div class="panel"><h2><span>1.</span> DAM <small>(earthfill)</small></h2>
+        <div id="ovDam" class="ovtable"></div>
+        <div class="pfoot"><a data-dl="dam_drawings.pdf">Drawings PDF</a><a data-dl="dam_report.pdf">Design report</a><button data-go="dam">Open dam design</button></div></div>
     </div>
     <div class="ovgrid" data-network-only>
       <div class="panel"><h2><span>1.</span> HLD DESIGN <small>(KML/KMZ)</small></h2>
@@ -115,7 +121,7 @@
         <div class="row"><label class="muted">PON <select id="ovPon"></select></label></div>
         <div id="ovSplice" class="splicebox"></div>
         <div class="pfoot"><a data-dl="splicing.pdf">PDF</a><a data-dl="splicing.xlsx">Excel</a><button data-go="splicing">Open editor</button></div></div>
-      <div class="panel"><h2><span>7.</span> <span id="ovReportTitle">SURVEY REPORT</span></h2><div id="ovReport"></div>
+      <div class="panel" data-nodam><h2><span>7.</span> <span id="ovReportTitle">SURVEY REPORT</span></h2><div id="ovReport"></div>
         <div class="pfoot"><a data-dl="report.docx">Word</a><a data-dl="report.pdf">PDF</a><button data-go="report">Edit text</button></div></div>
     </div>
     <div id="central">
@@ -219,6 +225,12 @@
   </section>
 
   <!-- Construction: the building in 3D, designed automatically from a brief and edited by hand (building3d.js) -->
+  <section id="tab-dam" class="tab">
+    <div class="bldwrap">
+      <aside class="bldside"><div id="damForm" class="form"></div></aside>
+      <div class="damres"><h3>Design</h3><div id="damResults"></div></div>
+    </div>
+  </section>
   <section id="tab-building" class="tab">
     <div class="bldwrap">
       <aside class="bldside">
@@ -519,6 +531,7 @@
 <script src="{% static 'planner/tools.js' %}"></script>
 <script src="{% static 'planner/cad.js' %}"></script>
 <script src="{% static 'planner/building3d.js' %}"></script>
+<script src="{% static 'planner/dam.js' %}"></script>
 <script src="{% static 'planner/assistant.js' %}"></script>
 <script src="{% static 'planner/share.js' %}"></script>
 <script src="{% static 'planner/sector.js' %}"></script>

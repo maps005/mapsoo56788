@@ -17,7 +17,36 @@ FCK, FYK, STEEL = 30.0, 500.0, 0.02                  # MPa, MPa, column steel ra
 GAMMA_C, FINISHES, PARTITIONS = 25.0, 1.5, 2.4      # kN/m3, kN/m2, kN/m2 (block partitions, EN 1991-1-1 6.3.1.2)
 ROOF_IMPOSED, WALL_LINE = 1.5, 12.0                  # kN/m2 (accessible flat roof), kN/m per storey (200 mm blockwork)
 ROOF_DEAD = 4.0          # kN/m2 on a flat roof slab: screed to falls (~125 mm average), waterproofing, tanks and plant
-WIND_PRESSURE = 1.0      # kN/m2 peak (Nairobi basic wind about 28 m/s, EN 1991-1-4, urban terrain)
+WIND_PRESSURE = 1.0      # kN/m2: the floor on the peak velocity pressure (older code allowance)
+VB = 28.0                # m/s basic wind speed, Nairobi (EN 1991-1-4 with the Kenyan wind map; to confirm)
+Z0, ZMIN = 0.3, 5.0      # terrain category III (suburban, towns): roughness length and minimum height, m
+CF = 1.3                 # force coefficient on the whole building: windward 0.8 + leeward 0.5 (EN 1991-1-4 7.2.2)
+# fire resistance (EN 1992-1-2 tabulated data; the period from the height of the top floor, as the 2024 Kenya
+# Building Code and UK Approved Document B): minimum sizes and axis distances, mm
+FIRE_MIN = {  # minutes: column side / axis (5.2a, mu 0.7), slab h / axis (5.8 two-way), wall t / axis (5.4),
+    #           continuous beam b / axis (5.6)
+    60: {"column": (300, 40), "slab": (80, 10), "wall": (130, 10), "beam": (200, 12)},
+    90: {"column": (350, 40), "slab": (100, 15), "wall": (140, 25), "beam": (250, 25)},
+    120: {"column": (350, 57), "slab": (120, 20), "wall": (160, 35), "beam": (300, 35)},
+}
+
+
+def fire_period(b: B.Building) -> int:
+    """Minutes of fire resistance the structure needs: by the height of the top floor (R60 up to 18 m, R90 up
+    to 30 m, R120 above)."""
+    top = max((lv.elevation for lv in b.levels), default=0.0)
+    return 60 if top <= 18 else 90 if top <= 30 else 120
+
+
+def wind_peak(z: float) -> dict:
+    """EN 1991-1-4 4.5: the peak velocity pressure qp(z), kN/m2, at height z over terrain category III."""
+    z = max(z, ZMIN)
+    kr = 0.19 * (Z0 / 0.05) ** 0.07
+    cr = kr * math.log(z / Z0)
+    vm = cr * VB
+    iv = 1 / math.log(z / Z0)
+    qp = (1 + 7 * iv) * 0.5 * 1.25 * vm * vm / 1000
+    return {"z": z, "kr": kr, "cr": cr, "vm": vm, "iv": iv, "qp": qp, "qb": 0.5 * 1.25 * VB * VB / 1000}
 SEISMIC_COEFF = 0.08     # base shear / weight: Nairobi ag about 0.1 g, ductility class medium RC walls (EN 1998)
 GAMMA_SOIL = 20.0        # kN/m3: backfill over the foundations
 HEADROOM = 2.25          # m clear from the finished floor to a beam soffit (door heads at 2.1 m)
@@ -65,6 +94,8 @@ def design(b: B.Building, bearing: float = 0.0) -> Optional[dict]:
     two_way = max(long_x, long_y) / short <= 2.0
     slab = max(0.15, _round_up(short / (30 if two_way else 26), 0.025))  # slab panels between the beams
     q = imposed_load(b)
+    while slab < 0.4 and not slab_deflection(slab, short, q)["ok"]:  # thicker until it passes EC2 7.4.2
+        slab = round(slab + 0.025, 3)
     g = GAMMA_C * slab + FINISHES + PARTITIONS
     w_floor = 1.35 * g + 1.5 * q                     # kN/m2 at the ultimate limit state
     w_roof = 1.35 * (GAMMA_C * slab + ROOF_DEAD) + 1.5 * ROOF_IMPOSED
@@ -72,7 +103,16 @@ def design(b: B.Building, bearing: float = 0.0) -> Optional[dict]:
     sigma = 0.4 * FCK + 0.67 * FYK * STEEL           # MPa: axial capacity of a column section
     heights = [lv.height for lv in b.levels]
     storey = min(heights) - b.levels[0].slab
-    beam_x, beam_y = _beam(long_x, slab, storey), _beam(long_y, slab, storey)
+    fire = FIRE_MIN[fire_period(b)]
+    fire_col = fire["column"][0] / 1000
+    beam_x, beam_y = _beam(long_x, slab, storey, fire["beam"][0] / 1000), _beam(long_y, slab, storey, fire["beam"][0] / 1000)
+    for bm, tw in ((beam_x, short / 2), (beam_y, short)):  # no compression steel: widen until K <= K' (0.167)
+        bm["trib"] = tw
+        while bm["b"] < 1.2:
+            wl = w_floor * tw + 1.35 * GAMMA_C * bm["b"] * (bm["h"] - slab)
+            if wl * bm["span"] ** 2 / 10 * 1e6 / (bm["b"] * 1000 * ((bm["h"] - 0.05) * 1000) ** 2 * FCK) <= 0.167:
+                break
+            bm["b"] = round(bm["b"] + 0.05, 3)
     beam_w = lambda bm: GAMMA_C * bm["b"] * (bm["h"] - slab)  # noqa: E731  kN/m of downstand
     columns, worst = [], 0.0
     for c in cols0:
@@ -85,7 +125,7 @@ def design(b: B.Building, bearing: float = 0.0) -> Optional[dict]:
             n_floor = floors - lv - 1
             N = A * (w_roof + w_floor * n_floor) + beams * (n_floor + 1) + facade * (floors - lv) + own
             moment = 1.1 if not edge else 1.25 if edge == 1 else 1.5  # bending allowance: internal, edge, corner
-            side = max(0.3, _round_up(math.sqrt(N * moment * 1e3 / sigma) / 1e3, 0.025))
+            side = max(0.3, fire_col, _round_up(math.sqrt(N * moment * 1e3 / sigma) / 1e3, 0.025))
             own += 1.35 * GAMMA_C * side * side * heights[lv]
             per_level.append((round(N + 1.35 * GAMMA_C * side * side * heights[lv]), round(side, 3)))
         per_level.reverse()
@@ -168,6 +208,7 @@ def design(b: B.Building, bearing: float = 0.0) -> Optional[dict]:
             "two_way": two_way, "lateral": lateral, "foundation_concrete": FOUNDATION_CONCRETE,
             "rebar": _reinforcement(slab, short, w_floor, beam_x, beam_y, long_x, long_y, columns, found, q_net),
             "headroom": round(storey - 0.05 - max(beam_x["h"], beam_y["h"]) + slab, 2),
+            "stair": stair_design(b),
             "w_roof": round(w_roof, 2), "slab": slab, "spans": (round(long_x, 2), round(long_y, 2)),
             "beam_x": beam_x, "beam_y": beam_y, "columns": columns, "worst_N": worst, "bearing": q_allow,
             "bearing_assumed": not bearing, "foundation": found,
@@ -177,14 +218,80 @@ def design(b: B.Building, bearing: float = 0.0) -> Optional[dict]:
                     "drawings and calculations govern."}
 
 
-def _beam(L: float, slab: float, storey: float) -> dict:
+STAIR_IMPOSED = 3.0  # kN/m2, escape stairs (EN 1991-1-1 category C3)
+
+
+def stair_design(b: B.Building) -> Optional[dict]:
+    """The waist slab of the stairs, simply supported between the floor and the half landing (or the next floor):
+    the thinnest waist (in 25 mm steps from 150) that carries the bending without compression steel and passes
+    EC2 7.4.2, and its bars."""
+    st = next((s for s in b.stairs if s.level == 0), None) or (b.stairs[0] if b.stairs else None)
+    if not st:
+        return None
+    n, rise, _ = B.stair_steps(b, st)
+    per = math.ceil(n / max(1, st.flights))
+    run = per * st.tread
+    span = run + (1.0 if st.flights == 2 else 0.3)  # the going and the landing it bears on
+    cos = run / math.hypot(run, per * rise)
+    t = 0.15
+    while True:
+        gk = GAMMA_C * (t / cos + rise / 2) + FINISHES
+        w = 1.35 * gk + 1.5 * STAIR_IMPOSED
+        M = w * span ** 2 / 8
+        d = (t - 0.025 - 0.006) * 1000
+        K = M * 1e6 / (1000 * d * d * FCK)
+        z = min(0.95, 0.5 + math.sqrt(max(0.0, 0.25 - K / 1.134))) * d
+        As = max(M * 1e6 / (0.87 * FYK * z), 0.0013 * 1e6 * t)
+        lim = span_depth_limit(As / (1000 * d), 1.0)
+        if (K <= 0.167 and span * 1000 / d <= lim) or t >= 0.4:
+            break
+        t = round(t + 0.025, 3)
+    main = _bars(As, (12, 16))
+    return {"waist": t, "span": round(span, 2), "risers": n, "rise": rise, "going": st.tread, "flights": st.flights,
+            "cos": cos, "gk": gk, "w": w, "M": M, "d": d, "K": K, "As": As, "ld": span * 1000 / d, "limit": lim,
+            "main": main, "dist": _bars(max(0.2 * As, 0.0013 * 1e6 * t * 0.5), (10, 12))}
+
+
+def span_depth_limit(rho: float, K: float = 1.3) -> float:
+    """EN 1992-1-1 expression 7.16: the basic span / effective depth for a tension steel ratio rho (no
+    compression steel), K by the span's support (1.0 simply supported, 1.3 end span, 1.5 interior)."""
+    rho0 = math.sqrt(FCK) / 1000
+    rho = max(rho, 1e-5)
+    if rho <= rho0:
+        lim = K * (11 + 1.5 * math.sqrt(FCK) * rho0 / rho + 3.2 * math.sqrt(FCK) * (rho0 / rho - 1) ** 1.5)
+    else:
+        lim = K * (11 + 1.5 * math.sqrt(FCK) * rho0 / rho)
+    return min(lim, 40 * K)
+
+
+def slab_deflection(h: float, span: float, q: float) -> dict:
+    """EN 1992-1-1 7.4.2: the span / effective depth of a slab h thick spanning `span` against the limit of
+    expression 7.16 (K = 1.3, an end span of a continuous slab), with the steel its bending needs."""
+    fyd = 0.87 * FYK
+    d = h - 0.03
+    w = 1.35 * (GAMMA_C * h + FINISHES + PARTITIONS) + 1.5 * q
+    m = w * span ** 2 / 10
+    K = m * 1e6 / (1000 * (d * 1000) ** 2 * FCK)
+    z = min(0.95, 0.5 + math.sqrt(max(0.0, 0.25 - K / 1.134))) * d * 1000
+    As = max(m * 1e6 / (fyd * z), 0.0013 * 1e6 * h)
+    rho0, rho = math.sqrt(FCK) / 1000, As / (1000 * d * 1000)
+    Kd = 1.3
+    if rho <= rho0:
+        lim = Kd * (11 + 1.5 * math.sqrt(FCK) * rho0 / rho + 3.2 * math.sqrt(FCK) * (rho0 / rho - 1) ** 1.5)
+    else:
+        lim = Kd * (11 + 1.5 * math.sqrt(FCK) * rho0 / rho)
+    lim = min(lim, 40 * Kd)
+    return {"ld": span / d, "limit": lim, "rho": rho, "rho0": rho0, "K": Kd, "ok": span / d <= lim}
+
+
+def _beam(L: float, slab: float, storey: float, b_min: float = 0.0) -> dict:
     """A beam on a frame line: span / 12 deep; where that leaves less than HEADROOM under it (with a 50 mm
-    screed), a wider, shallower beam, span / 16 at the least."""
+    screed), a wider, shallower beam, span / 16 at the least; never narrower than the fire period allows."""
     h = max(0.4, _round_up(L / 12, 0.05))
-    b = 0.3 if L > 4.5 else 0.23
+    b = max(0.3 if L > 4.5 else 0.23, b_min)
     room = math.floor((storey - HEADROOM - 0.05 + slab) / 0.05 + 1e-9) * 0.05
     if h > room:
-        h, b = max(room, _round_up(L / 16, 0.05)), 0.45 if L <= 7 else 0.6
+        h, b = max(room, _round_up(L / 16, 0.05)), max(b_min, 0.45 if L <= 7 else 0.6)
     return {"span": round(L, 2), "b": b, "h": round(h, 3)}
 
 
@@ -274,9 +381,11 @@ def _lateral(b, g, q, floors, heights, slab, columns, beam_x, beam_y, q_allow, D
     # the seismic weight: floors (slab, finishes, partitions, 30 % of the imposed load), frame, cores and facades
     weight = area * (g + 0.3 * q) + GAMMA_C * (wall_vol + col_vol + beam_vol) + facade
     v_seis = SEISMIC_COEFF * weight
-    wind_x, wind_y = WIND_PRESSURE * (y1 - y0) * H, WIND_PRESSURE * (x1 - x0) * H
+    wq = wind_peak(H)  # the peak pressure at the top, over the whole height (conservative), times the force coefficient
+    wp = max(WIND_PRESSURE, CF * wq["qp"])
+    wind_x, wind_y = wp * (y1 - y0) * H, wp * (x1 - x0) * H
     out = {"cores": len(cores), "weight": round(weight), "height": round(H, 1), "seismic": round(v_seis),
-           "wind_x": round(wind_x), "wind_y": round(wind_y), "coeff": SEISMIC_COEFF, "wind_kpa": WIND_PRESSURE,
+           "wind_x": round(wind_x), "wind_y": round(wind_y), "coeff": SEISMIC_COEFF, "wind_kpa": round(wp, 2), "qp": round(wq["qp"], 2), "cf": CF,
            "core_volume": round(wall_vol, 1), "rafts": [], "rafts_rect": [], "core_weight": 0.0}
     info = []
     for ws in cores:  # each core's walls along x and y (solid lengths) and the gravity load on it

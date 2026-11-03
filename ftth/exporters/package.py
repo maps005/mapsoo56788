@@ -9,7 +9,7 @@ from typing import Callable
 
 from .. import calc, sectors, splicing, validate
 from ..model import Design
-from . import dxf, excel, kml, lld, pdf, plans, word
+from . import damdocs, dxf, engineering, excel, kml, lld, pdf, plans, word
 from .common import Stamp
 
 Builder = Callable[[Design, Stamp, Path | None], bytes]
@@ -17,7 +17,8 @@ Builder = Callable[[Design, Stamp, Path | None], bytes]
 MIME = {"kml": "application/vnd.google-earth.kml+xml", "kmz": "application/vnd.google-earth.kmz",
         "pdf": "application/pdf", "dxf": "image/vnd.dxf", "json": "application/json",
         "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "zip": "application/zip"}
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "zip": "application/zip",
+        "ifc": "application/x-step"}
 
 
 def _splicing_json(d: Design, st: Stamp, _p=None) -> bytes:
@@ -58,19 +59,33 @@ DELIVERABLES: dict[str, dict[str, Builder]] = {
     "qa": {"pdf": lambda d, s, p: pdf.qa_pdf(d, s), "xlsx": lambda d, s, p: excel.qa_xlsx(d, s)},
     "project": {"xlsx": lambda d, s, p: excel.project_xlsx(d, s), "json": _project_json, "zip": _csv_zip},
     "plans": {"pdf": lambda d, s, p: plans.build_plans_pdf(d, s)},  # construction: floor plans and elevations
+    # construction: for the structural and architectural engineers
+    "bbs": {"xlsx": lambda d, s, p: engineering.bbs_xlsx(d, s), "pdf": lambda d, s, p: engineering.bbs_pdf(d, s)},
+    "calcs": {"pdf": lambda d, s, p: engineering.calcs_pdf(d, s)},
+    "schedules": {"xlsx": lambda d, s, p: engineering.schedules_xlsx(d, s)},
+    "ifc": {"ifc": lambda d, s, p: engineering.ifc_model(d, s)},
+    # dams
+    "dam_drawings": {"pdf": lambda d, s, p: damdocs.drawings_pdf(d, s)},
+    "dam_report": {"pdf": lambda d, s, p: damdocs.report_pdf(d, s)},
 }
 
 TITLES = {"hld": "HLD", "lld": "LLD", "pole_summary": "Pole Summary", "bom": "BOM", "boq": "BOQ",
           "splicing": "Splicing Diagram", "report": "Survey Report", "home_list": "Home List",
-          "qa": "QA & Approval Report", "project": "Project Data", "plans": "Plans & Elevations"}
+          "qa": "QA & Approval Report", "project": "Project Data", "plans": "Plans & Elevations",
+          "bbs": "Bar Bending Schedule", "calcs": "Structural Calculations", "schedules": "Architectural Schedules",
+          "ifc": "BIM Model (IFC)", "dam_drawings": "Dam Drawings", "dam_report": "Dam Design Report"}
 NETWORK_ONLY = {"hld", "lld", "pole_summary", "splicing", "home_list"}
+CONSTRUCTION_ONLY = {"plans", "bbs", "calcs", "schedules", "ifc"}
+DAM_ONLY = {"dam_drawings", "dam_report"}
 
 
 def relevant(d: Design) -> list[str]:
     """The deliverables of this project: a construction project has plans instead of the network drawings."""
+    if sectors.get(d.info.sector).get("dam"):
+        return ["dam_drawings", "dam_report", "bom", "boq", "qa", "project"]
     if sectors.get(d.info.sector).get("construction"):
-        return [k for k in DELIVERABLES if k not in NETWORK_ONLY]
-    return [k for k in DELIVERABLES if k != "plans"]
+        return [k for k in DELIVERABLES if k not in NETWORK_ONLY | DAM_ONLY]
+    return [k for k in DELIVERABLES if k not in CONSTRUCTION_ONLY | DAM_ONLY]
 
 
 # design sections each deliverable is generated from (to flag only the outputs a change affects)
@@ -124,7 +139,9 @@ def build_package(d: Design, st: Stamp, photo_dir: Path | None) -> bytes:
     buf = io.BytesIO()
     folders = {"hld": "01_HLD", "lld": "02_LLD", "pole_summary": "03_Pole_Summary", "bom": "04_BOM",
                "boq": "05_BOQ", "splicing": "06_Splicing", "report": "07_Survey_Report", "home_list": "08_Home_List",
-               "qa": "09_QA_Report", "project": "10_Project_Data", "plans": "02_Plans"}
+               "qa": "09_QA_Report", "project": "10_Project_Data", "plans": "02_Plans",
+               "bbs": "11_Bar_Bending_Schedule", "calcs": "12_Structural_Calculations", "schedules": "13_Schedules",
+               "ifc": "14_BIM_Model", "dam_drawings": "01_Dam_Drawings", "dam_report": "02_Dam_Design_Report"}
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         files = []
         for deliv in relevant(d):

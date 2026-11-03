@@ -1131,7 +1131,8 @@ def quantities(b: Building, bearing: float = 0.0) -> list[tuple[str, float, str]
     stair_vol = 0.0
     for s in b.stairs:
         n, rise, going = stair_steps(b, s)
-        stair_vol += s.width * (math.hypot(going, rise * n) * 0.15 + n * s.tread * rise / 2)
+        waist = (dz["stair"] or {}).get("waist", 0.15) if dz else 0.15  # the designed waist
+        stair_vol += s.width * (math.hypot(going, rise * n) * waist + n * s.tread * rise / 2)
         if s.flights == 2:
             stair_vol += (2 * s.width + GAP) * s.width * 0.15  # the half landing
     add("CONC-STAIR", stair_vol, "Stairs: waist slab and steps")
@@ -1141,8 +1142,13 @@ def quantities(b: Building, bearing: float = 0.0) -> list[tuple[str, float, str]
         kg = (dz["volumes"]["foundation"] * r_["foundation"] + slab_vol * r_["slab"] + dz["volumes"]["column"] * r_["column"]
               + dz["volumes"]["beam"] * r_["beam"] + stair_vol * r_["stair"] + wall_v * r_["wall"]
               + (footing - dz["volumes"]["foundation"]) * r_["foundation"])
-        add("REBAR", kg, f"Foundations {r_['foundation']}, slabs {r_['slab']}, columns {r_['column']}, beams {r_['beam']}, "
-                         f"walls {r_['wall']} kg/m3")
+        from .exporters import engineering  # the bar bending schedule, bar by bar, when there is one
+        bbs = engineering.bbs_rows_for(b, bearing)
+        if bbs:
+            add("REBAR", sum(r["kg"] for r in bbs), f"From the bar bending schedule: {len(bbs)} bar marks (BS 8666)")
+        else:
+            add("REBAR", kg, f"Foundations {r_['foundation']}, slabs {r_['slab']}, columns {r_['column']}, beams {r_['beam']}, "
+                             f"walls {r_['wall']} kg/m3")
     else:
         add("REBAR", (footing + slab_vol + col_vol + stair_vol) * sp.rebar_kg_per_m3,
             f"{sp.rebar_kg_per_m3:g} kg per m3 of structural concrete")

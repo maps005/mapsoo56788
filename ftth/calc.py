@@ -341,6 +341,11 @@ def bom(d: Design) -> list[BomLine]:
         for code, q, source in services.quantities(d):
             add(code, q, source)
 
+    if d.dam is not None:  # dams: quantities from the zoned embankment, spillway and outlet
+        from . import dam
+        for code, q, source in dam.quantities(d.dam):
+            add(code, q, source)
+
     adj: dict[str, float] = defaultdict(float)
     for a in d.adjustments:
         adj[a.code] += a.qty
@@ -455,7 +460,15 @@ def summary(d: Design) -> dict:
         "boq_total": boq_total(lines), "currency": d.info.currency,
         "fat_load": dict(fat_load(d)),
         "building": _building_summary(d),  # construction: floors, floor area... (None without a building)
+        "dam": _dam_summary(d),  # dams: levels, height, storage, checks (None without a dam)
     }
+
+
+def _dam_summary(d: Design) -> dict | None:
+    if d.dam is None:
+        return None
+    from . import dam
+    return dam.summary(d.dam)
 
 
 def _building_summary(d: Design) -> dict | None:

@@ -74,6 +74,7 @@ function changed(rerenderMap = true) {
   renderProps();
   if (activeTab() === "lld" && typeof renderLld === "function") renderLld();  // edits made in the drawing tab
   if (activeTab() === "building" && typeof renderBuilding === "function") renderBuilding(false);
+  if (activeTab() === "dam" && typeof renderDam === "function") renderDam(false);
 }
 
 async function save() {
@@ -581,6 +582,13 @@ function setField(type, obj, f, raw) {
 function summaryHtml() {
   const s = S.st?.summary; if (!s) return "";
   const t = S.st?.sector, fibre = !t || t.fibre_tools;
+  if (t?.dam) {  // the dam, not a network or a building
+    const z = s.dam;
+    return `<h4>Project summary</h4><table>
+      <tr><td>Dam height / crest</td><td class="num">${z?.designed ? `${z.height} m / ${z.crest_length} m` : "not designed"}</td></tr>
+      <tr><td>Storage at FSL</td><td class="num">${z?.designed ? fmt(z.storage) + " m3" : "-"}</td></tr>
+      <tr><td><b>BOQ total</b></td><td class="num"><b>${esc(s.currency)} ${fmt(s.boq_total, 2)}</b></td></tr></table>`;
+  }
   if (t?.construction) {  // the building, not a network
     const b = S.D.building;
     return `<h4>Project summary</h4><table>
@@ -636,6 +644,7 @@ async function renderActiveTab(full) {
   if (t === "settings" && full) renderSettings();
   if (t === "lld" && full) renderLld();
   if (t === "building" && typeof renderBuilding === "function") renderBuilding(full);
+  if (t === "dam" && typeof renderDam === "function") renderDam(full);
   if (t === "splicing") { await renderSplicing(); await renderSplicingSchematic(); }
   if (t === "schedules") await renderSchedules();
   if (t === "report" && full) renderReport();
