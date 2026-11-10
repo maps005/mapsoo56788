@@ -134,7 +134,8 @@ def build(d: Design, deliverable: str, fmt: str, st: Stamp, photo_dir: Path | No
     return DELIVERABLES[deliverable][fmt](d, st, photo_dir)
 
 
-def build_package(d: Design, st: Stamp, photo_dir: Path | None) -> bytes:
+def build_package(d: Design, st: Stamp, photo_dir: Path | None, only: list[str] | None = None) -> bytes:
+    """Every deliverable of the project in one zip (only: just these, a member's own deliverables)."""
     issues = validate.validate(d)
     buf = io.BytesIO()
     folders = {"hld": "01_HLD", "lld": "02_LLD", "pole_summary": "03_Pole_Summary", "bom": "04_BOM",
@@ -145,6 +146,8 @@ def build_package(d: Design, st: Stamp, photo_dir: Path | None) -> bytes:
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         files = []
         for deliv in relevant(d):
+            if only is not None and deliv not in only:
+                continue
             for fmt in DELIVERABLES[deliv]:
                 name = f"{folders[deliv]}/{filename(d, deliv, fmt, st.revision)}"
                 z.writestr(name, build(d, deliv, fmt, st, photo_dir))

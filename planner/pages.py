@@ -14,7 +14,7 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 
-from ftth import calc, sectors, validate
+from ftth import calc, occupations, sectors, validate
 
 from .models import Comment, Company, Membership, Profile, Project
 from .views import ApiError, active_company, record_revision
@@ -202,6 +202,7 @@ def company_page(request):
         elif action == "add_member":
             who = (request.POST.get("user") or "").strip()
             role = request.POST.get("role") if request.POST.get("role") in Membership.RANK else "planner"
+            occ = _occupation(request, company)
             User = get_user_model()
             target = User.objects.filter(Q(username__iexact=who) | Q(email__iexact=who)).first() if who else None
             if target is None:
@@ -209,7 +210,8 @@ def company_page(request):
             elif role == "owner" and not m.at_least("owner") and not u.is_superuser:
                 messages.error(request, "Only an owner can add another owner.")
             else:
-                Membership.objects.update_or_create(user=target, company=company, defaults={"role": role})
+                Membership.objects.update_or_create(user=target, company=company,
+                                                    defaults={"role": role, "occupation": occ})
                 messages.success(request, f"{target.get_username()} is now {role} of {company.name}.")
         elif action in ("role", "remove"):
             mem = get_object_or_404(Membership, pk=request.POST.get("membership"), company=company)
@@ -224,8 +226,10 @@ def company_page(request):
                 messages.success(request, f"{mem.user.get_username()} removed from {company.name}.")
             elif new in Membership.RANK:
                 mem.role = new
+                mem.occupation = _occupation(request, company)
                 mem.save()
-                messages.success(request, f"{mem.user.get_username()} is now {new}.")
+                messages.success(request, f"{mem.user.get_username()} is now {new}, "
+                                          f"{occupations.label(mem.occupation).lower()}.")
         elif action == "adopt":
             n = Project.objects.filter(owner=u, company__isnull=True).update(company=company)
             messages.success(request, f"{n} of your personal project(s) added to {company.name}.")
@@ -238,6 +242,12 @@ def company_page(request):
                   _ctx_company(request, mine, company, m, CompanyForm(instance=company) if can_admin else None))
 
 
+def _occupation(request, company) -> str:
+    """The posted occupation if the company's sector has it ("" = full access)."""
+    occ = request.POST.get("occupation") or ""
+    return occ if occ != occupations.ALL and occ in dict(occupations.for_sector(company.sector)) else ""
+
+
 def _ctx_company(request, mine, company, m, form) -> dict:
     projects = company.projects.select_related("owner").order_by("-updated")
     stats = {"total": projects.count(), "draft": 0, "in_review": 0, "approved": 0}
@@ -246,7 +256,9 @@ def _ctx_company(request, mine, company, m, form) -> dict:
     return _nav(request, "company") | {
         "memberships": mine, "c": company, "me": m, "form": form,
         "can_admin": bool(m and m.at_least("admin")) or request.user.is_superuser,
-        "members": company.memberships.select_related("user"), "roles": Membership.ROLES,
+        "members": [{"m": mm, "occupation": mm.occupation or occupations.ALL, "occupation_label": occupations.label(mm.occupation)}
+                    for mm in company.memberships.select_related("user")],
+        "roles": Membership.ROLES, "occupations": occupations.for_sector(company.sector),
         "projects": [{"p": p, "design_label": STATUS_LABEL.get(_status(p)[0], "")} for p in projects[:50]],
         "stats": stats,
         "personal": Project.objects.filter(owner=request.user, company__isnull=True).count()}

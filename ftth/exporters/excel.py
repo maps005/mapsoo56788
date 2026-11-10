@@ -310,19 +310,30 @@ TEMPLATE_LISTS = {("*", "Status"): "existing,proposed", ("*", "Install"): "aeria
                   ("Equipment", "Kind"): "POP,ENCLOSURE,PR_ENCLOSURE,JB,PON,FAT,SLACK", ("Cables", "Kind"): "main,spur,drop"}
 
 
-def survey_template_xlsx() -> bytes:
-    """Blank workbook for survey data: one sheet per kind of record, plus instructions with examples."""
+def survey_template_xlsx(sector: str = "fibre") -> bytes:
+    """Blank workbook for survey data: one sheet per kind of record, plus instructions with examples. The sheet
+    and column names are the importer's (the same for every sector); the instructions say what they mean in the
+    project's sector (Poles: marker posts, Homes: properties, Cables: pipes, Cores: diameter...)."""
+    from .. import sectors as SEC
     from openpyxl.worksheet.datavalidation import DataValidation
     wb = Workbook()
     ws = wb.active
     ws.title = "Instructions"
-    ws["A1"] = "FTTH survey data upload template"
+    t = SEC.get(sector)
+    fibre = t.get("fibre_tools", True)
+    ws["A1"] = "FTTH survey data upload template" if fibre else f"{t['label']} survey data upload template"
     ws["A1"].font = Font(bold=True, size=14, color="1F4E79")
     lines = ["Fill in the sheets you need (any can stay empty) and upload the whole file under Survey data > Import",
              "with 'Rows are' set to auto. Sheets are read in this order: Poles, Equipment, Homes, Splitters, Cables,",
              "so cables can refer to pole and equipment IDs in the same file. A row with an existing ID updates that",
              "record. Rows with missing coordinates are kept and flagged for correction. Keep the sheet names.",
              "Dark blue headings are required columns."]
+    if not fibre:
+        lines += ["", f"In a {t['label'].lower()} project: Poles are {t['support'].lower()}s, Homes are "
+                      f"{t['premise'].lower()}s, Equipment is " + ", ".join(f"{k} = {v}" for k, v in t["kinds"].items())
+                  + f"; Cables are {t['line'].lower()}s and Cores is the {t['size'].lower()} ({t['size_unit']}).",
+                  "Kind of line: main = " + t["lines"]["main"] + ", spur = " + t["lines"]["spur"] + ", drop = "
+                  + t["lines"]["drop"] + ". The Splitters sheet is not used."]
     for i, t in enumerate(lines, start=2):
         ws.cell(row=i, column=1, value=t)
     r = len(lines) + 3

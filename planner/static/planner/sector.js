@@ -1,7 +1,8 @@
 "use strict";
 // Sector: the planner speaks the project's sector (fibre, water, pipelines, electricity, sanitation). Names of
 // features, the seven workflow steps and the editor tools follow S.st.sector; fibre-only tools are hidden for the
-// other sectors. Settings can switch the project to another sector.
+// other sectors, and of the rest only the tools of the member's occupation (S.st.features) are shown. Settings can
+// switch the project to another sector.
 const SECTOR_ORIG = {};
 
 function applySector() {
@@ -15,8 +16,16 @@ function applySector() {
   $$("[data-construction-only]").forEach((e) => { e.hidden = !build || dam; });
   $$("[data-dam-only]").forEach((e) => { e.hidden = !dam; });
   $$("[data-nodam], [data-tab='report']").forEach((e) => { e.hidden = dam; });
-  if ((build && ["lld", "splicing"].includes(activeTab())) || ((!build || dam) && activeTab() === "building")
-      || (!dam && activeTab() === "dam") || (dam && activeTab() === "report")) $("[data-tab='overview']").click();
+  // occupation: of the sector's tools, only those of the member's own work (S.st.features; all if not sent)
+  const feats = new Set(S.st?.features || []), all = !S.st?.features;
+  const GATED = "[data-fibre-only], [data-network-only], [data-construction-only], [data-dam-only], [data-nodam], " +
+    "[data-tab='report'], [data-tab='splicing']";
+  $$("[data-feature]").forEach((e) => {
+    const has = all || e.dataset.feature.split(" ").some((f) => feats.has(f));
+    if (!has) e.hidden = true;
+    else if (!e.matches(GATED)) e.hidden = false;
+  });
+  if ($(`[data-tab='${activeTab()}']`)?.hidden) $("[data-tab='overview']").click();
 
   // workflow steps
   $$("#steps > li").forEach((li, i) => {

@@ -27,13 +27,13 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 from pydantic import ValidationError
 
-from ftth import calc, importers, sectors, splicing, standards, validate
+from ftth import calc, importers, occupations, sectors, splicing, standards, validate, workbooks
 from ftth.exporters import package
 from ftth.exporters.common import stamp
 from ftth.model import DEFAULT_MATERIALS, Design, Photo, ProjectInfo
 from ftth.sample import sample_building, sample_design
 
-from .models import Comment, Company, ExportRecord, Membership, Profile, Project, Revision, role_in
+from .models import Comment, Company, ExportRecord, Membership, Profile, Project, Revision, occupation_in, role_in
 
 
 class ApiError(Exception):
@@ -117,6 +117,8 @@ def _survey_fingerprint(d: Design) -> str:
 @api("POST")
 def apply_standard(request, pid):
     """Reset the project's rules and design style to a design standard (default: its company's)."""
+    _p = _project(request, pid)
+    _need(request, _p, _p.design, "costing")
     body = _body(request)
 
     def run(d):
@@ -158,6 +160,8 @@ def apply_sector(request, pid):
 def building_generate(request, pid):
     """Construction: design the building automatically from the brief (replaces the current building, keeping
     where it sits on the map)."""
+    _p = _project(request, pid)
+    _need(request, _p, _p.design, "building_design")
     from ftth import building as B
     body = _body(request)
     mode = body.pop("mode", "replace")
@@ -274,6 +278,28 @@ def _people(p: Project) -> list[dict]:
     return out
 
 
+def _features(request, p: Project, d: Design) -> list[str]:
+    """The tools this user has on this project: the project sector's, narrowed by their occupation."""
+    return occupations.features(d.info.sector, occupation_in(request.user, p.company))
+
+
+def _need(request, p: Project, d: Design, *feats: str):
+    """403 unless the user's occupation includes one of feats."""
+    if not set(feats) & set(_features(request, p, d)):
+        occ = occupations.label(occupation_in(request.user, p.company))
+        raise ApiError(403, f"Not part of your work as {occ}: {occupations.FEATURES[feats[0]].lower()}")
+
+
+def _check_changes(request, p: Project, old: Design, new: Design):
+    """403 if the new design changes a part outside the user's occupation (an architect cannot edit the network
+    or the rates, a splicing technician not the poles)."""
+    bad = occupations.forbidden_changes(old.model_dump(mode="json"), new.model_dump(mode="json"),
+                                        _features(request, p, new))
+    if bad:
+        occ = occupations.label(occupation_in(request.user, p.company))
+        raise ApiError(403, f"Not saved: as {occ} you cannot change {', '.join(bad)}")
+
+
 def _version(p: Project) -> str:
     """The project's version token: the hash stored when it was last saved. Saves compare against this same
     stored value, so a newer data model (new fields with defaults change content_hash) never makes an
@@ -287,12 +313,16 @@ def _state(request, p: Project, d: Design | None = None) -> dict:
     h = _version(p)
     exports = {e.deliverable: e for e in p.exports.all()}
     part = {k: package.deliverable_hash(d, k) for k in package.DELIVERABLES}
+    feats = _features(request, p, d)
+    mine = occupations.deliverables(package.relevant(d), feats)
+    occ = occupation_in(request.user, p.company)
     return {
         "id": p.id, "design": d.model_dump(mode="json"), "hash": h, "revision": p.current_version,
         "issues": issues, "counts": validate.counts(issues), "summary": calc.summary(d),
         "owner": p.owner.get_username(), "members": [u.get_username() for u in p.members.all()],
         "people": _people(p),
         "sector": sectors.profile(d.info.sector),
+        "features": feats, "occupation": {"key": occ or occupations.ALL, "label": occupations.label(occ)},
         "is_owner": p.owner_id == request.user.id or request.user.is_superuser,
         "can_edit": p.can_edit(request.user), "can_approve": p.can_approve(request.user),
         "can_manage": p.can_manage(request.user), "company": company_dict(p.company),
@@ -303,7 +333,7 @@ def _state(request, p: Project, d: Design | None = None) -> dict:
                         "last": ({"hash": exports[k].data_hash, "version": exports[k].version,
                                   "created": exports[k].created.isoformat()} if k in exports else None),
                         "stale": k in exports and exports[k].data_hash != part[k]}
-                    for k, v in package.DELIVERABLES.items() if k in package.relevant(d)},
+                    for k, v in package.DELIVERABLES.items() if k in mine},
     }
 
 
@@ -322,6 +352,7 @@ def _commit(request, pid: str, base_hash: str, d: Design) -> Project:
             who = p.updated_by.get_username() if p.updated_by else "another user"
             raise ApiError(409, f"{who} saved changes to this project while this was running. "
                                 f"Reload to get the latest version, then run it again.", conflict=True)
+        _check_changes(request, p, p.design, d)
         p.set_design(d, request.user)
         p.save()
     return p
@@ -349,6 +380,8 @@ def defaults(request):
 @api("POST")
 def import_prices(request, pid):
     """Update the project's material catalogue from a price list or BOQ template (Excel)."""
+    _p = _project(request, pid)
+    _need(request, _p, _p.design, "costing")
     f = request.FILES.get("file")
     if not f or not f.name.lower().endswith((".xlsx", ".xlsm")):
         raise ApiError(400, "Choose an Excel price list (.xlsx)")
@@ -367,6 +400,8 @@ def import_prices(request, pid):
 def indicative_rates(request, pid):
     """Give the materials with no rate an indicative rate (KES), so a first BOQ has figures; the company's own
     prices are never overwritten."""
+    _p = _project(request, pid)
+    _need(request, _p, _p.design, "costing")
     from ftth import rates
 
     def run(d):
@@ -383,6 +418,23 @@ def survey_template(request):
     """Blank Excel workbook for uploading survey data (poles, homes, equipment, splitters, cables)."""
     from ftth.exporters import excel
     return _download(excel.survey_template_xlsx(), "FTTH_survey_upload_template.xlsx", "xlsx")
+
+
+@api("GET")
+def data_template(request, pid):
+    """The project's data workbook to fill in and upload: a dam's survey and parameters, a building's site and
+    brief (with the current values), or the blank survey template of a network."""
+    p = _project(request, pid, edit=False)
+    d = p.design
+    sector = sectors.get(d.info.sector)
+    base = re.sub(r'[\\/:*?"<>|]+', " ", d.info.name)[:60].strip() or "Project"  # a name Windows can save
+    if sector.get("dam"):
+        return _download(workbooks.dam_template(d), f"{base} - dam data.xlsx", "xlsx")
+    if sector.get("construction"):
+        return _download(workbooks.building_template(d), f"{base} - site and brief.xlsx", "xlsx")
+    from ftth.exporters import excel
+    name = "FTTH" if sector.get("fibre_tools", True) else sector["label"].split(" (")[0].replace(" ", "_")
+    return _download(excel.survey_template_xlsx(d.info.sector), f"{name}_survey_upload_template.xlsx", "xlsx")
 
 
 @api("GET")
@@ -543,11 +595,27 @@ def _operate(request, pid, fn):
 
 @api("POST")
 def import_data(request, pid):
+    _p = _project(request, pid)
     f = request.FILES.get("file")
     if not f:
         raise ApiError(400, "Choose a file to import")
     target, status = request.POST.get("target", "auto"), request.POST.get("status", "existing")
     data = f.read()
+    sector = sectors.get(_p.design.info.sector)
+    if sector.get("dam") or sector.get("construction"):  # a dam's or a building's data workbook
+        dam = bool(sector.get("dam"))
+        _need(request, _p, _p.design, "dam" if dam else "building_design")
+        if not f.name.lower().endswith((".xlsx", ".xlsm")):
+            raise ApiError(400, "Upload the Excel data workbook (.xlsx): download the template first")
+
+        def run_wb(d):
+            try:
+                return (workbooks.import_dam if dam else workbooks.import_building)(d, data)
+            except ValueError as e:
+                raise ApiError(400, str(e))
+        st, lines = _operate(request, pid, run_wb)
+        return JsonResponse(st | {"import": {"problems": lines}})
+    _need(request, _p, _p.design, "survey", "network_edit")
 
     def run(d):
         try:
@@ -601,6 +669,8 @@ def _import_kmz_photos(request, pid: str, data: bytes) -> int:
 
 @api("POST")
 def assign_homes(request, pid):
+    _p = _project(request, pid)
+    _need(request, _p, _p.design, "network_edit")
     try:
         max_drop = float(request.GET.get("max_drop_m", 250))
     except ValueError:
@@ -615,6 +685,8 @@ def assign_homes(request, pid):
 @api("POST")
 def auto_design(request, pid):
     """Design the network from the survey data (replaces the current proposed design)."""
+    _p = _project(request, pid)
+    _need(request, _p, _p.design, "autodesign")
     from ftth import autodesign
     body = _body(request)
     preset = body.get("preset")
@@ -659,6 +731,8 @@ def auto_design(request, pid):
 
 @api("POST")
 def allocate(request, pid):
+    _p = _project(request, pid)
+    _need(request, _p, _p.design, "splicing")
     st, res = _operate(request, pid, splicing.auto_allocate)
     return JsonResponse(st | {"result": res})
 
@@ -761,6 +835,7 @@ def restore_revision(request, pid, version):
         if not rev:
             raise ApiError(404, "Revision not found")
         d = Design.model_validate(rev.data)
+        _check_changes(request, p, p.design, d)
         d.info.design_status = "draft"  # a restore is a change: it needs reviewing and approving again
         p.set_design(d, request.user)
         p.save()
@@ -944,6 +1019,11 @@ def export(request, pid, deliverable, fmt):
     if fmt not in package.DELIVERABLES.get(deliverable, {}):
         raise ApiError(404, "Unknown deliverable or format")
     d, rev = p.design, p.current_version
+    if deliverable not in package.relevant(d):
+        raise ApiError(404, f"A {sectors.get(d.info.sector)['label']} project has no {package.TITLES[deliverable]}")
+    if deliverable not in occupations.deliverables([deliverable], _features(request, p, d)):
+        raise ApiError(403, f"{package.TITLES[deliverable]} is not part of your work as "
+                            f"{occupations.label(occupation_in(request.user, p.company))}")
     content = package.build(d, deliverable, fmt, stamp(d, rev, _doc_brand(request, p)), _photo_dir(p.id))
     _record(request, p, {deliverable: package.deliverable_hash(d, deliverable)}, rev)
     return _download(content, package.filename(d, deliverable, fmt, rev), fmt)
@@ -956,8 +1036,9 @@ def export_package(request, pid):
     errs = [i for i in validate.validate(d) if i["severity"] == "error"]
     if errs and request.GET.get("force") != "true":
         raise ApiError(409, f"{len(errs)} validation error(s). Fix them or download anyway.")
-    content = package.build_package(d, stamp(d, rev, _doc_brand(request, p)), _photo_dir(p.id))
-    _record(request, p, {k: package.deliverable_hash(d, k) for k in package.DELIVERABLES}, rev)
+    mine = occupations.deliverables(package.relevant(d), _features(request, p, d))
+    content = package.build_package(d, stamp(d, rev, _doc_brand(request, p)), _photo_dir(p.id), only=mine)
+    _record(request, p, {k: package.deliverable_hash(d, k) for k in mine}, rev)
     return _download(content, package.filename(d, "package", "zip", rev), "zip")
 
 

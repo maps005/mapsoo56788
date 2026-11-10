@@ -209,7 +209,7 @@ function renderFileIcons() {
   const o = S.st?.outputs || {};
   let fresh = 0;
   const t = S.st?.sector;
-  const files = t?.dam  // dams: the drawings and the design report
+  const files = (t?.dam  // dams: the drawings and the design report
     ? [["Dam Drawings", "PDF", "dam_drawings.pdf", "#c62828", "dam_drawings"], ["Design Report", "PDF", "dam_report.pdf", "#c62828", "dam_report"],
        ...FILES.filter((f) => ["bom", "boq", "qa"].includes(f[4]))]
     : t?.construction  // construction: plans instead of the network drawings
@@ -218,7 +218,7 @@ function renderFileIcons() {
        ["Schedules", "XLS", "schedules.xlsx", "#217346", "schedules"], ["BIM Model", "IFC", "ifc.ifc", "#6a1b9a", "ifc"]]
     : t && !t.fibre_tools  // other sectors: no splicing diagram; the pole summary is their schedule
     ? FILES.filter((f) => f[4] !== "splicing").map((f) => f[4] === "pole_summary" ? [`${t.support} Schedule`, ...f.slice(1)] : f)
-    : FILES;
+    : FILES).filter((f) => !S.st?.outputs || f[4] in o);  // the member's own deliverables (their occupation)
   $("#fileIcons").innerHTML = files.map(([t, tag, spec, col, k]) => {
     const x = o[k], state = !x?.last ? "" : x.stale ? "stale" : "fresh";
     const tip = !x?.last ? "Not generated" : x.stale ? "Needs regenerating" : "Up to date";

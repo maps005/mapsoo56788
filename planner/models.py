@@ -61,6 +61,8 @@ class Membership(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="memberships")
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="memberships")
     role = models.CharField(max_length=10, choices=ROLES, default="planner")
+    # the member's trade (ftth.occupations): which tools and deliverables they see; blank = full access
+    occupation = models.CharField(max_length=30, blank=True, default="")
     added = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -83,6 +85,14 @@ class Profile(models.Model):
 
     def __str__(self):
         return f"Profile of {self.user}"
+
+
+def occupation_in(user, company) -> str:
+    """The user's occupation in a company ("" = full access, also for non-members and superusers)."""
+    if company is None or not getattr(user, "is_authenticated", False) or user.is_superuser:
+        return ""
+    m = Membership.objects.filter(user=user, company=company).only("occupation").first()
+    return m.occupation if m else ""
 
 
 def role_in(user, company) -> str | None:

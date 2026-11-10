@@ -21,6 +21,7 @@
     <span id="saveState" class="pill">-</span>
     <span id="issueBadge" class="pill" title="Validation issues">-</span>
     <span id="revBadge" class="pill">-</span>
+    <span id="occBadge" class="pill" hidden title="Your occupation in this company: the tools and deliverables you work with"></span>
   </div>
   <span class="spacer"></span>
   <nav class="hnav"><a href="/projects/">Projects</a><a href="/review/" id="navReview">Review</a><a href="/company/">Company</a>{% if user.is_staff %}<a href="{% url 'admin:index' %}">Admin</a>{% endif %}</nav>
@@ -74,15 +75,15 @@
 
 <nav id="tabs">
   <button data-tab="overview" class="active">Overview</button>
-  <button data-tab="data">Survey &amp; validation</button>
-  <button data-tab="map">HLD map</button>
-  <button data-tab="building" data-construction-only hidden>Building 3D</button>
-  <button data-tab="dam" data-dam-only hidden>Dam design</button>
-  <button data-tab="materials">Materials &amp; rules</button>
-  <button data-tab="lld" data-network-only>LLD drawing</button>
-  <button data-tab="schedules">Pole summary · BOM · BOQ</button>
-  <button data-tab="splicing">Splicing</button>
-  <button data-tab="report">Survey report</button>
+  <button data-tab="data" data-feature="survey">Survey &amp; validation</button>
+  <button data-tab="map" data-feature="map">HLD map</button>
+  <button data-tab="building" data-construction-only data-feature="building_design building_view" hidden>Building 3D</button>
+  <button data-tab="dam" data-dam-only data-feature="dam" hidden>Dam design</button>
+  <button data-tab="materials" data-feature="costing">Materials &amp; rules</button>
+  <button data-tab="lld" data-network-only data-feature="cad">LLD drawing</button>
+  <button data-tab="schedules" data-feature="costing schedules">Pole summary · BOM · BOQ</button>
+  <button data-tab="splicing" data-feature="splicing">Splicing</button>
+  <button data-tab="report" data-feature="report">Survey report</button>
   <button data-tab="qa">QA &amp; approval</button>
   <button data-tab="outputs">Outputs</button>
   <button data-tab="settings">Settings</button>
@@ -91,37 +92,37 @@
   <!-- Overview: the whole design on one page, every panel drawn from the same project data -->
   <section id="tab-overview" class="tab active">
     <div class="ovgrid" data-construction-only hidden>
-      <div class="panel"><h2><span>1.</span> BUILDING <small>(3D design)</small></h2>
+      <div class="panel" data-feature="building_design building_view structure"><h2><span>1.</span> BUILDING <small>(3D design)</small></h2>
         <div id="ovBuilding" class="ovtable"></div>
-        <div class="pfoot"><a data-dl="plans.pdf">Plans &amp; elevations PDF</a><button data-go="building">Open Building 3D</button></div></div>
+        <div class="pfoot"><a data-dl="plans.pdf" data-feature="building_design structure">Plans &amp; elevations PDF</a><button data-go="building" data-feature="building_design building_view">Open Building 3D</button></div></div>
     </div>
     <div class="ovgrid" data-dam-only hidden>
-      <div class="panel"><h2><span>1.</span> DAM <small>(earthfill)</small></h2>
+      <div class="panel" data-feature="dam"><h2><span>1.</span> DAM <small>(earthfill)</small></h2>
         <div id="ovDam" class="ovtable"></div>
         <div class="pfoot"><a data-dl="dam_drawings.pdf">Drawings PDF</a><a data-dl="dam_report.pdf">Design report</a><button data-go="dam">Open dam design</button></div></div>
     </div>
     <div class="ovgrid" data-network-only>
-      <div class="panel"><h2><span>1.</span> HLD DESIGN <small>(KML/KMZ)</small></h2>
+      <div class="panel" data-feature="map"><h2><span>1.</span> HLD DESIGN <small>(KML/KMZ)</small></h2>
         <div id="ovMap" class="ovmap"></div>
         <div class="legend" id="ovLegend"></div>
         <div class="pfoot"><a data-dl="hld.kmz">KMZ</a><a data-dl="hld.kml">KML</a><a data-dl="hld.pdf">PDF</a><button data-go="map">Open map</button></div></div>
-      <div class="panel dark"><h2><span>2.</span> LLD DESIGN <small>(AutoCAD)</small></h2>
+      <div class="panel dark" data-feature="cad"><h2><span>2.</span> LLD DESIGN <small>(AutoCAD)</small></h2>
         <div id="ovLld" class="lldbox"></div>
         <div class="pfoot"><a data-dl="lld.dxf">DXF</a><a data-dl="lld.pdf">PDF</a><button data-go="lld">Open drawing</button></div></div>
-      <div class="panel"><h2><span>3.</span> <span id="ovPolesTitle">POLE SUMMARY</span></h2>
+      <div class="panel" data-feature="schedules"><h2><span>3.</span> <span id="ovPolesTitle">POLE SUMMARY</span></h2>
         <div id="ovPoles" class="ovtable"></div>
         <div class="pfoot"><a data-dl="pole_summary.xlsx">Excel</a><a data-dl="pole_summary.pdf">PDF</a><button data-go="schedules" id="ovPolesAll">All poles</button></div></div>
     </div>
     <div class="ovgrid g4">
-      <div class="panel"><h2><span>4.</span> BOM</h2><div id="ovBom" class="ovtable"></div>
+      <div class="panel" data-feature="costing"><h2><span>4.</span> BOM</h2><div id="ovBom" class="ovtable"></div>
         <div class="pfoot"><a data-dl="bom.xlsx">Excel</a><a data-dl="bom.pdf">PDF</a></div></div>
-      <div class="panel"><h2><span>5.</span> BOQ</h2><div id="ovBoq" class="ovtable"></div>
+      <div class="panel" data-feature="costing"><h2><span>5.</span> BOQ</h2><div id="ovBoq" class="ovtable"></div>
         <div class="pfoot"><a data-dl="boq.xlsx">Excel</a><a data-dl="boq.pdf">PDF</a></div></div>
-      <div class="panel" data-fibre-only><h2><span>6.</span> FIBRE SPLICING DIAGRAM</h2>
+      <div class="panel" data-fibre-only data-feature="splicing"><h2><span>6.</span> FIBRE SPLICING DIAGRAM</h2>
         <div class="row"><label class="muted">PON <select id="ovPon"></select></label></div>
         <div id="ovSplice" class="splicebox"></div>
         <div class="pfoot"><a data-dl="splicing.pdf">PDF</a><a data-dl="splicing.xlsx">Excel</a><button data-go="splicing">Open editor</button></div></div>
-      <div class="panel" data-nodam><h2><span>7.</span> <span id="ovReportTitle">SURVEY REPORT</span></h2><div id="ovReport"></div>
+      <div class="panel" data-nodam data-feature="report"><h2><span>7.</span> <span id="ovReportTitle">SURVEY REPORT</span></h2><div id="ovReport"></div>
         <div class="pfoot"><a data-dl="report.docx">Word</a><a data-dl="report.pdf">PDF</a><button data-go="report">Edit text</button></div></div>
     </div>
     <div id="central">
@@ -227,17 +228,26 @@
   <!-- Construction: the building in 3D, designed automatically from a brief and edited by hand (building3d.js) -->
   <section id="tab-dam" class="tab">
     <div class="bldwrap">
-      <aside class="bldside"><div id="damForm" class="form"></div></aside>
+      <aside class="bldside"><p class="muted">Enter the survey and parameters here, or fill in the Excel data workbook (axis
+          profile, reservoir table, parameters) and upload it.</p>
+          <div class="row xlsbar"><a data-template href="#" download><button type="button">Download Excel</button></a>
+          <label class="filebtn" title="Upload the filled-in workbook: changed values replace the current ones">Upload Excel<input type="file" data-upload-data accept=".xlsx,.xlsm" hidden></label></div>
+          <pre class="report" data-upload-report hidden></pre>
+        <div id="damForm" class="form"></div></aside>
       <div class="damres"><h3>Design</h3><div id="damResults"></div></div>
     </div>
   </section>
   <section id="tab-building" class="tab">
     <div class="bldwrap">
       <aside class="bldside">
-        <details id="bldSite" class="bldsite"><summary>Site survey &amp; client brief</summary>
+        <details id="bldSite" class="bldsite" data-feature="building_design"><summary>Site survey &amp; client brief</summary>
           <p class="muted">Ground conditions the foundations depend on, and what the building must provide: QA checks the
             design against them and the report includes them.</p>
+          <div class="row xlsbar"><a data-template href="#" download><button type="button">Download Excel</button></a>
+          <label class="filebtn" title="Upload the filled-in workbook: changed values replace the current ones">Upload Excel<input type="file" data-upload-data accept=".xlsx,.xlsm" hidden></label></div>
+          <pre class="report" data-upload-report hidden></pre>
           <div id="bldSiteForm" class="form"></div></details>
+        <div data-feature="building_design">
         <h3>Auto design</h3>
         <p class="muted">A building made to your numbers: walls, rooms, doors and windows, slabs, stairs and roof. It
           replaces the current building (its place on the map is kept); then edit it by hand.</p>
@@ -262,6 +272,7 @@
         </div>
         <div class="row"><button id="bldAddLevel" title="Add a floor on top, copying the walls of the top floor">+ Floor</button>
           <button id="bldRoofBtn" title="Put a roof over the top floor (or change its type)">Roof…</button></div>
+        </div>
         <div id="bldProps"></div>
       </aside>
       <div class="bldview">
@@ -289,19 +300,20 @@
       <div class="card"><h3>Project &amp; drawing title block</h3>
         <p class="muted">Printed on the LLD sheets, reports and file names. Saved with the project.</p>
         <div id="setTitle" class="form"></div></div>
-      <div class="card" data-fibre-only><h3>Auto-design options</h3>
-        <p class="muted">Used when you press Auto-design (saved in this browser). Defaults follow the company standard.</p>
+      <div class="card" data-feature="costing"><h3>Sector &amp; design standard</h3>
         <div class="form"><label>Sector (names, materials and tools)<select id="sectorSel"></select></label></div>
         <div class="row"><button id="sectorApply">Switch project to this sector</button></div>
-        <div class="form"><label>Design standard (design style + construction rules)<select id="stdSel"></select></label></div>
-        <div class="row"><button id="stdApply">Apply standard to this project</button></div>
+        <div data-fibre-only><div class="form"><label>Design standard (design style + construction rules)<select id="stdSel"></select></label></div>
+        <div class="row"><button id="stdApply">Apply standard to this project</button></div></div></div>
+      <div class="card" data-fibre-only data-feature="autodesign"><h3>Auto-design options</h3>
+        <p class="muted">Used when you press Auto-design (saved in this browser). Defaults follow the company standard.</p>
         <div id="setAuto" class="form"></div>
         <div class="row"><button id="saveAuto" class="ok">Save options</button><button id="resetAuto">Company defaults</button></div></div>
     </div>
     <div class="grid2">
       <div class="card"><h3>Map &amp; drawing preferences</h3><div id="setPrefs" class="form"></div></div>
-      <div class="card"><h3>Construction rules, catalogue &amp; keyboard</h3>
-        <p class="muted">Quantity rules (J-hooks, tension clamps, UPBs, slack, cable allowances) and the material catalogue with rates are set per project.</p>
+      <div class="card" data-feature="costing"><h3>Construction rules, catalogue &amp; keyboard</h3>
+        <p class="muted">Quantity rules and the material catalogue with rates are set per project.</p>
         <div class="row"><button data-go="materials">Open materials &amp; rules</button><button type="button" id="setKeys">Keyboard shortcuts</button></div></div>
     </div>
   </section>
@@ -312,26 +324,26 @@
       <button id="btnRedo" title="Redo (Ctrl+Y)" disabled>&#8631; Redo</button>
       <span class="sep"></span>
       <button data-mode="select" class="active" title="Select / drag features (S)">Select</button>
-      <button data-mode="place" data-construction-only hidden title="Click the map where the building's origin (its south-west corner) goes">Place building</button>
-      <label data-construction-only hidden title="Turn the building on the map (degrees, anticlockwise)">Turn <input id="bldRot" type="number" step="1" style="width:60px"> °</label>
-      <button data-mode="pole" data-network-only>+ Pole</button>
-      <button data-mode="home" data-network-only>+ Home</button>
-      <select id="nodeKind" data-network-only>
+      <button data-mode="place" data-construction-only data-feature="building_design" hidden title="Click the map where the building's origin (its south-west corner) goes">Place building</button>
+      <label data-construction-only data-feature="building_design" hidden title="Turn the building on the map (degrees, anticlockwise)">Turn <input id="bldRot" type="number" step="1" style="width:60px"> °</label>
+      <button data-mode="pole" data-network-only data-feature="network_edit survey">+ Pole</button>
+      <button data-mode="home" data-network-only data-feature="network_edit survey">+ Home</button>
+      <select id="nodeKind" data-network-only data-feature="network_edit">
         <option value="POP">POP</option><option value="ENCLOSURE">Splice enclosure</option>
         <option value="PR_ENCLOSURE">PR enclosure</option><option value="JB">JB</option>
         <option value="PON">PON (1st-stage)</option><option value="FAT" selected>FAT</option><option value="SLACK">Slack loop</option>
       </select>
-      <button data-mode="node" data-network-only>+ Equipment</button>
+      <button data-mode="node" data-network-only data-feature="network_edit">+ Equipment</button>
       <span class="sep"></span>
-      <select id="cableKind" data-network-only><option value="main">Main</option><option value="spur" selected>Spur</option><option value="drop">Drop</option></select>
-      <select id="cableCores" data-network-only></select>
-      <button data-mode="cable" data-network-only>Draw cable</button>
-      <button data-mode="boundary">Boundary</button>
+      <select id="cableKind" data-network-only data-feature="network_edit"><option value="main">Main</option><option value="spur" selected>Spur</option><option value="drop">Drop</option></select>
+      <select id="cableCores" data-network-only data-feature="network_edit"></select>
+      <button data-mode="cable" data-network-only data-feature="network_edit">Draw cable</button>
+      <button data-mode="boundary" data-feature="network_edit building_design dam">Boundary</button>
       <span class="sep"></span>
-      <button id="btnAssign" data-network-only title="Assign unserved homes to nearest FAT with free ports">Auto-assign homes</button>
-      <button data-mode="extend" data-network-only title="Click the map where the 48C backbone must reach (future phases)">Backbone end</button>
-      <button id="btnAutoDesign" data-fibre-only class="ok" title="Design FATs, splitters, closures and cables from the survey data">Auto-design</button>
-      <button id="btnDelete" class="danger" title="Delete selected (Del)">Delete selected</button>
+      <button id="btnAssign" data-network-only data-feature="network_edit" title="Assign unserved homes to nearest FAT with free ports">Auto-assign homes</button>
+      <button data-mode="extend" data-fibre-only data-feature="network_edit" title="Click the map where the 48C backbone must reach (future phases)">Backbone end</button>
+      <button id="btnAutoDesign" data-fibre-only data-feature="autodesign" class="ok" title="Design FATs, splitters, closures and cables from the survey data">Auto-design</button>
+      <button id="btnDelete" data-feature="network_edit survey building_design" class="danger" title="Delete selected (Del)">Delete selected</button>
       <span class="sep"></span>
       <button data-mode="measure" title="Measure distance and area (M)">&#128207; Measure</button>
       <input id="findBox" list="findList" placeholder="Find ID / name or lat, lon (/)" title="Find a feature by ID or name, or type coordinates to go there">
@@ -353,13 +365,13 @@
   <section id="tab-data" class="tab">
     <div class="card">
       <div class="row"><h3>Import survey data</h3><span class="spacer"></span>
-        <a href="/api/survey-template.xlsx" download><button type="button">Download Excel template</button></a></div>
+        <a data-template href="/api/survey-template.xlsx" download><button type="button">Download Excel template</button></a></div>
       <form id="importForm" class="row">
         <input type="file" name="file" accept=".xlsx,.xlsm,.csv,.txt,.kml,.kmz,.gpx" required>
         <label>Rows are <select name="target">
           <option value="auto">auto (detect from sheet names / columns)</option><option value="poles">poles</option>
           <option value="homes">homes / MDUs</option><option value="nodes">equipment</option>
-          <option value="splitters">splitters (Excel/CSV)</option>
+          <option value="splitters" data-fibre-only>splitters (Excel/CSV)</option>
           <option value="cables">cables</option></select></label>
         <label>Status <select name="status"><option>existing</option><option>proposed</option></select></label>
         <button type="submit">Import</button>
@@ -389,8 +401,8 @@
         <button id="addMaterial">Add item</button></div>
         <pre id="priceReport" class="report"></pre>
         <div id="materialsTable" class="tablewrap"></div></div>
-      <div class="card"><div class="row"><h3>Construction rules</h3><span class="spacer"></span><button id="resetRules">Load company rules</button></div>
-        <p class="muted">Defaults are calibrated on the V Squared Infinity Densification FY26 project (see docs/calibration.md).</p>
+      <div class="card" data-network-only><div class="row"><h3>Construction rules</h3><span class="spacer"></span><button id="resetRules">Load company rules</button></div>
+        <p class="muted" data-fibre-only>Defaults are calibrated on the V Squared Infinity Densification FY26 project (see docs/calibration.md).</p>
         <div id="rulesForm" class="form"></div></div>
     </div>
     <div class="card"><div class="row"><h3>Authorised manual adjustments</h3><span class="spacer"></span><button id="addAdj">Add adjustment</button></div>
@@ -417,9 +429,9 @@
   </section>
 
   <section id="tab-schedules" class="tab">
-    <div class="card"><h3>Cable lengths</h3><div id="schCables" class="tablewrap"></div></div>
-    <div class="card"><h3 id="schPolesTitle">Pole summary</h3><div id="schPoles" class="tablewrap"></div></div>
-    <div class="grid2">
+    <div class="card" data-network-only data-feature="schedules"><h3>Cable lengths</h3><div id="schCables" class="tablewrap"></div></div>
+    <div class="card" data-network-only data-feature="schedules"><h3 id="schPolesTitle">Pole summary</h3><div id="schPoles" class="tablewrap"></div></div>
+    <div class="grid2" data-feature="costing">
       <div class="card"><h3>BOM</h3><div id="schBom" class="tablewrap"></div></div>
       <div class="card"><h3>BOQ</h3><div id="schBoq" class="tablewrap"></div></div>
     </div>

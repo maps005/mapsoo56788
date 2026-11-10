@@ -25,6 +25,7 @@ urlpatterns = [
     path(f"{P}/comments/<int:cid>/resolve", views.resolve_comment),
     path("company/<int:cid>/logo", views.company_logo, name="company_logo"),
     path(f"{P}/import", views.import_data),
+    path(f"{P}/data-template.xlsx", views.data_template),
     path(f"{P}/prices", views.import_prices),
     path(f"{P}/indicative-rates", views.indicative_rates),
     path(f"{P}/assign-homes", views.assign_homes),

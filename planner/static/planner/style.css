@@ -457,7 +457,8 @@ dialog.sharedlg::backdrop { background: rgba(10,20,35,.45); }
 .shlink input { background: #f6f9fd; color: var(--muted); }
 
 /* sector: fibre-only tools are hidden for water, pipelines, electricity and sanitation projects */
-[data-fibre-only][hidden], [data-tab][hidden], [data-network-only][hidden], [data-construction-only][hidden] { display: none !important; }
+[data-fibre-only][hidden], [data-tab][hidden], [data-network-only][hidden], [data-construction-only][hidden],
+[data-dam-only][hidden], [data-nodam][hidden], [data-feature][hidden] { display: none !important; }
 
 /* AI assistant: changes it proposes, made only when the planner presses Apply */
 .aichanges { margin-top: 8px; padding: 8px 10px; border: 1px solid #b9d3ee; border-left: 3px solid #1f6fbf; border-radius: 6px; background: #f3f8fd; font-size: 12.5px; }

@@ -393,6 +393,8 @@ function renderAccess() {
   if (!st) return;
   const appr = $('[data-rev="approved"]');
   if (appr) { appr.disabled = !st.can_approve; appr.title = st.can_approve ? "" : "Approving needs the approver role in this project's company"; }
+  const occ = $("#occBadge");  // a member with an occupation sees only that trade's tools
+  if (occ) { occ.hidden = !st.occupation || st.occupation.key === "all"; occ.textContent = st.occupation?.label || ""; }
   let bar = $("#readonly");
   if (!st.can_edit) {
     if (!bar) { bar = document.createElement("div"); bar.id = "readonly"; document.querySelector("header").after(bar); }

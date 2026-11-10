@@ -716,6 +716,26 @@ $("#importForm").addEventListener("submit", async (e) => {
     S.fitted = false; renderMap(); renderData();
   } catch (err) { toast(err.message, 6000); }
 });
+// data workbooks: the project's Excel template (a dam's survey and parameters, a building's site and brief, a
+// network's survey sheets) and its upload, from the Dam, Building and Survey tabs
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-template]");
+  if (a && S.pid) a.href = `/api/projects/${S.pid}/data-template.xlsx`;
+}, true);
+$$("[data-upload-data]").forEach((inp) => inp.addEventListener("change", async () => {
+  const file = inp.files[0];
+  if (!file || !S.pid) return;
+  const out = inp.closest("aside, details, .card")?.querySelector("[data-upload-report]");
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const st = await serverOp(`/api/projects/${S.pid}/import`, { method: "POST", body: fd });
+    if (out) { out.hidden = false; out.textContent = `Imported ${file.name}\n` + (st.import?.problems || []).join("\n"); }
+    toast("Data imported from Excel");
+    if (typeof renderDam === "function") renderDam(true);
+  } catch (err) { toast(err.message, 7000); }
+  inp.value = "";
+}));
 $("#approveSurvey").onclick = () => {
   const errs = (S.st.issues || []).filter((i) => SURVEY_CODES.includes(i.code) && i.severity === "error");
   if (errs.length) return toast(`Fix ${errs.length} survey error(s) before approving`);
