@@ -234,6 +234,56 @@ $("#cdbPackage").addEventListener("click", () => $("#btnPackage").click());
 // ---------------------------------------------------------------------------
 // LLD CAD view: black sheet, CAD colours, legend and title block
 // ---------------------------------------------------------------------------
+// grid coordinates of the CAD view (the project's coordinate system, as in the DXF): WGS 84 / UTM, Arc 1960 / UTM
+// (Clarke 1880, Kenya's survey datum) or the local plane. The same maths as ftth/geo.py.
+const ELL = { wgs84: [6378137, 1 / 298.257223563], clarke: [6378249.145, 1 / 293.465] }, ARC_SHIFT = [157, 2, 299];
+function ecef(lat, lon, [a, f]) {
+  const e2 = f * (2 - f), p = lat * Math.PI / 180, l = lon * Math.PI / 180, n = a / Math.sqrt(1 - e2 * Math.sin(p) ** 2);
+  return [n * Math.cos(p) * Math.cos(l), n * Math.cos(p) * Math.sin(l), n * (1 - e2) * Math.sin(p)];
+}
+function geodetic([x, y, z], [a, f]) {
+  const e2 = f * (2 - f), p = Math.hypot(x, y);
+  let lat = Math.atan2(z, p * (1 - e2));
+  for (let i = 0; i < 6; i++) { const n = a / Math.sqrt(1 - e2 * Math.sin(lat) ** 2); lat = Math.atan2(z + e2 * n * Math.sin(lat), p); }
+  return [lat * 180 / Math.PI, Math.atan2(y, x) * 180 / Math.PI];
+}
+function tmFwd(lat, lon, lon0, [a, f], fn) {
+  const k0 = 0.9996, e2 = f * (2 - f), ep2 = e2 / (1 - e2), p = lat * Math.PI / 180, dl = (lon - lon0) * Math.PI / 180;
+  const n = a / Math.sqrt(1 - e2 * Math.sin(p) ** 2), t = Math.tan(p) ** 2, c = ep2 * Math.cos(p) ** 2, A = dl * Math.cos(p);
+  const m = a * ((1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256) * p - (3 * e2 / 8 + 3 * e2 ** 2 / 32 + 45 * e2 ** 3 / 1024) * Math.sin(2 * p)
+    + (15 * e2 ** 2 / 256 + 45 * e2 ** 3 / 1024) * Math.sin(4 * p) - (35 * e2 ** 3 / 3072) * Math.sin(6 * p));
+  return [500000 + k0 * n * (A + (1 - t + c) * A ** 3 / 6 + (5 - 18 * t + t * t + 72 * c - 58 * ep2) * A ** 5 / 120),
+    fn + k0 * (m + n * Math.tan(p) * (A * A / 2 + (5 - t + 9 * c + 4 * c * c) * A ** 4 / 24 + (61 - 58 * t + t * t + 600 * c - 330 * ep2) * A ** 6 / 720))];
+}
+function tmInv(E, N, lon0, [a, f], fn) {
+  const k0 = 0.9996, e2 = f * (2 - f), ep2 = e2 / (1 - e2), mu = (N - fn) / k0 / (a * (1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256));
+  const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+  const p1 = mu + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * Math.sin(2 * mu) + (21 * e1 ** 2 / 16 - 55 * e1 ** 4 / 32) * Math.sin(4 * mu)
+    + (151 * e1 ** 3 / 96) * Math.sin(6 * mu) + (1097 * e1 ** 4 / 512) * Math.sin(8 * mu);
+  const n1 = a / Math.sqrt(1 - e2 * Math.sin(p1) ** 2), t1 = Math.tan(p1) ** 2, c1 = ep2 * Math.cos(p1) ** 2;
+  const r1 = a * (1 - e2) / (1 - e2 * Math.sin(p1) ** 2) ** 1.5, d = (E - 500000) / (n1 * k0);
+  const lat = p1 - (n1 * Math.tan(p1) / r1) * (d * d / 2 - (5 + 3 * t1 + 10 * c1 - 4 * c1 * c1 - 9 * ep2) * d ** 4 / 24
+    + (61 + 90 * t1 + 298 * c1 + 45 * t1 * t1 - 252 * ep2 - 3 * c1 * c1) * d ** 6 / 720);
+  const lon = (d - (1 + 2 * t1 + c1) * d ** 3 / 6 + (5 - 2 * c1 + 28 * t1 - 3 * c1 * c1 + 8 * ep2 + 24 * t1 * t1) * d ** 5 / 120) / Math.cos(p1);
+  return [lat * 180 / Math.PI, lon0 + lon * 180 / Math.PI];
+}
+// {name, fwd(lat, lon) -> [E, N], inv(E, N) -> [lat, lon]} for the project; null for the local plane
+function cadGrid(D, pr) {
+  const crs = D.info.crs || "utm";
+  if (crs === "local" || !pr) return null;
+  const [lat0, lon0] = pr.inverse(0, 0), zone = Math.max(1, Math.min(60, Math.floor((lon0 + 180) / 6) + 1)), south = lat0 < 0;
+  const cm = (zone - 1) * 6 - 180 + 3, fn = south ? 1e7 : 0, arc = crs === "arc1960", ell = arc ? ELL.clarke : ELL.wgs84;
+  const shift = (ll, s) => { const x = ecef(ll[0], ll[1], s > 0 ? ELL.wgs84 : ELL.clarke); return geodetic(x.map((v, i) => v + s * ARC_SHIFT[i]), s > 0 ? ELL.clarke : ELL.wgs84); };
+  const epsg = arc ? 21000 + zone + (south ? 0 : 60) : (south ? 32700 : 32600) + zone;
+  return { name: `${arc ? "Arc 1960" : "WGS 84"} / UTM ${zone}${south ? "S" : "N"} (EPSG:${epsg})`,
+    fwd: (lat, lon) => { const ll = arc ? shift([lat, lon], 1) : [lat, lon]; return tmFwd(ll[0], ll[1], cm, ell, fn); },
+    inv: (E, N) => { const ll = tmInv(E, N, cm, ell, fn); return arc ? shift(ll, -1) : ll; } };
+}
+// a drawing point (local metres, y down) as text in the project's coordinates
+function cadCoordText(x, y) {
+  const pr = CAD.proj, g = cadGrid(S.D, pr), [la, lo] = pr.inverse(x, y);
+  return g ? (([E, N]) => `E ${E.toFixed(2)}  N ${N.toFixed(2)}`)(g.fwd(la, lo)) : `X ${x.toFixed(2)} m  Y ${(-y).toFixed(2)} m`;
+}
 function projector(D) {
   const pts = [...D.poles, ...D.homes, ...D.nodes].filter(okc).map((x) => [x.lat, x.lon])
     .concat(D.cables.filter((c) => c.status === "proposed").flatMap((c) => c.path.map((v) => [v.lat, v.lon])), D.info.boundary);
@@ -278,7 +328,7 @@ function drawLld(box, big) {
   const dark = !big || P.cad_dark, fg = dark ? "#e6edf3" : "#111";
   el("rect", { x: x0 - span * 5, y: y0 - span * 5, width: span * 11, height: span * 11, fill: dark ? "#000" : "#fff" }, svg);
   if (big) el("g", { id: "cadBasemap" }, svg);  // map tiles under the drawing (drawBasemap)
-  const r = span / (big ? 320 : 200), stroke = (w) => ({ "stroke-width": w, "vector-effect": "non-scaling-stroke", fill: "none" });
+  const r = big ? (D.info.cad_scale || 1500) / 1000 * 0.75 : span / 200, stroke = (w) => ({ "stroke-width": w, "vector-effect": "non-scaling-stroke", fill: "none" });
   // where each feature is drawn, for picking and snapping in the drawing tab
   const feats = { pts: [], lines: [] };
   const layer = (name) => el("g", { "data-layer": name, ...(big && P.cad_off.includes(name) ? { display: "none" } : {}) }, svg);
@@ -605,7 +655,9 @@ const OSNAP = [["end", "Endpoint / feature"], ["mid", "Midpoint"], ["cen", "Cent
   ["perp", "Perpendicular"], ["near", "Nearest"]];
 function osnapOn(k) { return (PREFS.cad_osnap || { end: 1, mid: 1, cen: 1, int: 1, perp: 1 })[k]; }
 function snapFrom() {  // the previous point of the drawing or edit in progress
-  return CAD.dpts?.[CAD.dpts.length - 1] || (CAD.op?.base ? [CAD.op.base.x, CAD.op.base.y] : null) || CAD.cmdFrom || null;
+  const m = CAD.tool === "measure" && CAD.meas?.length ? CAD.meas[CAD.meas.length - 1] : null;
+  return CAD.dpts?.[CAD.dpts.length - 1] || (m ? [m.x, m.y] : null) || (CAD.op?.base ? [CAD.op.base.x, CAD.op.base.y] : null)
+    || CAD.cmdFrom || null;
 }
 function segCross(a, b, c, d) {
   const r = [b[0] - a[0], b[1] - a[1]], s = [d[0] - c[0], d[1] - c[1]], den = r[0] * s[1] - r[1] * s[0];
@@ -821,7 +873,7 @@ function cadEnd() {
 // previous point.
 const DRAW = { line: "Line: click two points.", pline: "Polyline: click points; Enter or double-click finishes, C closes it.",
   rect: "Rectangle: click two opposite corners.", circle: "Circle: click the centre, then a point on the edge.",
-  text: "Text: type the note in the note box, then click where it goes.",
+  text: "Text: click where it goes, then type the text and press Enter (or fill the note box first).",
   leader: "Leader: click the arrow point, then the bend / text points; Enter finishes (text from the note box).",
   dim: "Dimension: click the two points to measure.", area: "Area: click the corners; Enter or double-click finishes.",
   angle: "Angle: click a point on one arm, the vertex, then a point on the other arm.", id: "ID point: click a point." };
@@ -861,14 +913,15 @@ function showInquiry(P, closed) {  // the measured shape stays on screen until t
 function drawClick(p) {
   const tool = CAD.tool, { q } = drawPoint(p), pts = CAD.dpts;
   if (tool === "id") {
-    const [la, lo] = CAD.proj.inverse(q[0], q[1]), t = `${la.toFixed(6)}, ${lo.toFixed(6)}`;
-    cadMsg(`Point: X ${q[0].toFixed(2)} m  Y ${(-q[1]).toFixed(2)} m  ·  ${t} (copied)`);
+    const [la, lo] = CAD.proj.inverse(q[0], q[1]), g = cadGrid(S.D, CAD.proj);
+    const t = g ? g.fwd(la, lo).map((v) => v.toFixed(2)).join(", ") : `${la.toFixed(6)}, ${lo.toFixed(6)}`;
+    cadMsg(`Point: ${cadCoordText(q[0], q[1])}  ·  ${la.toFixed(6)}, ${lo.toFixed(6)} (${g ? "E, N" : "lat, lon"} copied)`);
     navigator.clipboard?.writeText(t).catch(() => {});
     return;
   }
   if (tool === "text") {
     const note = $("#cadNote").value.trim();
-    if (!note) { $("#cadNote").focus(); return toast("Type the note in the note box first"); }
+    if (!note) { CAD.textAt = q; $("#cadCmd")?.focus(); return cadMsg("Text: type the text and press Enter."); }
     addMarkup("text", [q], { text: note });
     return;
   }
@@ -1163,7 +1216,7 @@ function cadTools(svg) {
     const p = svgPoint(svg, e), pr = CAD.proj;
     if (pr) {  // cursor position in metres and lat / lon (inverse of the local projection)
       const ll = pr.inverse(p.x, p.y);
-      $("#lldCoord").textContent = `X ${p.x.toFixed(1)} m  Y ${(-p.y).toFixed(1)} m  ·  ${ll[0].toFixed(6)}, ${ll[1].toFixed(6)}`;
+      $("#lldCoord").textContent = `${cadCoordText(p.x, p.y)}  ·  ${ll[0].toFixed(6)}, ${ll[1].toFixed(6)}`;
     }
     CAD.cursor = [p.x, p.y];
     if (CAD.cmd) { cadCmdHover(p, preview); return; }
@@ -1279,6 +1332,9 @@ function renderLld() {
     $("#lldText").value = P.cad_text; $("#lldGrid").checked = P.cad_grid; $("#lldDark").checked = P.cad_dark;
     $("#cadMap").value = P.cad_map || "off"; cadToggles();
     $("#cadSheetMap").value = S.D.info.sheet_map || "off";
+    $("#cadScale").value = String(S.D.info.cad_scale || 1500);
+    $("#cadCrs").value = S.D.info.crs || "utm";
+    $("#cadCrs").title = `Coordinate system of the DXF, the readout and typed points: ${cadGrid(S.D, projector(S.D))?.name || "local plane"}`;
   }
 }
 
@@ -1301,6 +1357,8 @@ function lldFileName(ext) {
 }
 $("#lldWin").onclick = () => setCadTool("window");
 $("#lldMeasure").onclick = () => setCadTool("measure");
+$("#cadScale").onchange = () => { S.D.info.cad_scale = +$("#cadScale").value; changed(); renderLld(); };
+$("#cadCrs").onchange = () => { S.D.info.crs = $("#cadCrs").value; changed(); renderLld(); };
 $("#lldText").addEventListener("input", (e) => { PREFS.cad_text = +e.target.value; savePrefs(); renderLld(); });
 $("#lldGrid").addEventListener("change", (e) => { PREFS.cad_grid = e.target.checked; savePrefs(); $('#lldBig [data-layer="grid"]')?.setAttribute("display", e.target.checked ? "inline" : "none"); });
 $("#lldDark").addEventListener("change", (e) => { PREFS.cad_dark = e.target.checked; savePrefs(); renderLld(); });

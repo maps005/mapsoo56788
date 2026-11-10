@@ -386,6 +386,10 @@ class ProjectInfo(BaseModel):
     survey_fingerprint: str = ""
     design_status: Literal["draft", "in_review", "approved"] = "draft"
     sheet_map: Literal["off", "streets", "satellite"] = "off"  # map under the LLD / HLD PDF sheets and in the DXF
+    # CAD: the coordinate system of the DXF and the CAD view's coordinates, and the drawing scale (1:N) that sets
+    # the size of symbols and text and the LLD route sheets
+    crs: Literal["local", "utm", "arc1960"] = "utm"
+    cad_scale: int = Field(default=1500, ge=100, le=20000)
 
 
 class Design(BaseModel):

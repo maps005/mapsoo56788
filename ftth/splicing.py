@@ -399,9 +399,9 @@ def _index(d: Design) -> dict[tuple, list[tuple[Connection, End]]]:
     return idx
 
 
-def trace_upstream(d: Design, splitter_id: str) -> dict:
-    """Follow the fibre feeding a splitter back to the OLT."""
-    idx = _index(d)
+def trace_upstream(d: Design, splitter_id: str, idx: dict | None = None) -> dict:
+    """Follow the fibre feeding a splitter back to the OLT (idx: the connection index, when tracing many)."""
+    idx = idx if idx is not None else _index(d)
     steps, seen = [], set()
     cur = End(kind="splitter_in", ref=splitter_id)
     prev_conn = None
@@ -423,6 +423,12 @@ def trace_upstream(d: Design, splitter_id: str) -> dict:
         else:
             return {"ok": False, "steps": steps, "reason": f"unexpected {end_label(d, other)}"}
     return {"ok": False, "steps": steps, "reason": "trace too long"}
+
+
+def trace_all(d: Design, stage: int | None = None) -> dict[str, dict]:
+    """Traces of every splitter (of one stage), sharing one connection index: {splitter id: trace}."""
+    idx = _index(d)
+    return {s.id: trace_upstream(d, s.id, idx) for s in d.splitters if stage is None or s.stage == stage}
 
 
 def core_table(d: Design) -> list[dict]:
@@ -532,9 +538,10 @@ def check(d: Design) -> list[dict]:
 
     # every FAT must be fed from the OLT before the design can be approved, allocated yet or not
     sev = "error"
+    traces = trace_all(d, 2)
     for s in d.splitters:
         if s.stage == 2:
-            t = trace_upstream(d, s.id)
+            t = traces[s.id]
             if not t["ok"]:
                 err("fat_unfed", f"{s.node} splitter {s.id} is not fed from the OLT: {t['reason']}", s.node, sev)
     if d.connections:

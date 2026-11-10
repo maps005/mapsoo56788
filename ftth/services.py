@@ -5,6 +5,9 @@ emergency lighting, escape routes and travel distances). The services engineer d
 the routes, sizes and quantities for the drawings and the BOQ."""
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
 import math
 
 from . import building as B, compliance
@@ -29,10 +32,23 @@ def _cluster(points, gap=3.0):
     return [(sum(q[0] for q in c) / len(c), sum(q[1] for q in c) / len(c)) for c in out]
 
 
+_LAYOUTS: dict[str, dict] = {}  # by the building and its plot: one page load asks for the layout several times
+
+
 def layout(d: Design) -> dict:
     b = d.building
     if not b or not b.walls:
         return {}
+    key = hashlib.sha1((b.model_dump_json() + json.dumps(d.info.boundary)).encode()).hexdigest()
+    if key not in _LAYOUTS:
+        if len(_LAYOUTS) > 32:
+            _LAYOUTS.clear()
+        _LAYOUTS[key] = _layout(d)
+    return copy.deepcopy(_LAYOUTS[key])
+
+
+def _layout(d: Design) -> dict:
+    b = d.building
     fp = B.footprint(b)
     x0, y0, x1, y1 = B._bbox(fp)
     plot = compliance.plot_local(d)

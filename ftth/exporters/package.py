@@ -25,7 +25,7 @@ def _splicing_json(d: Design, st: Stamp, _p=None) -> bytes:
     data = {"stamp": st.as_dict(), "splitters": [s.model_dump() for s in d.splitters],
             "connections": [c.model_dump() for c in d.connections],
             "cores": splicing.core_table(d),
-            "fat_traces": {s.node: splicing.trace_upstream(d, s.id) for s in d.splitters if s.stage == 2}}
+            "fat_traces": {d.splitter(k).node: t for k, t in splicing.trace_all(d, 2).items()}}
     return json.dumps(data, indent=2).encode()
 
 
@@ -46,7 +46,7 @@ def _csv_zip(d: Design, st: Stamp, _p=None) -> bytes:
 DELIVERABLES: dict[str, dict[str, Builder]] = {
     "hld": {"kml": lambda d, s, p: kml.build_kml(d, s).encode(), "kmz": lambda d, s, p: kml.build_kmz(d, s),
             "pdf": lambda d, s, p: pdf.map_pdf(d, s, "HLD DESIGN", detail=False)},
-    "lld": {"dxf": lambda d, s, p: dxf.build_dxf(d, s), "pdf": lambda d, s, p: lld.build_lld_pdf(d, s),
+    "lld": {"dxf": lambda d, s, p: dxf.build_dxf(d, s), "pdf": lambda d, s, p: lld.build_lld_pdf(d, s, d.info.cad_scale),
             "zip": lambda d, s, p: dxf.build_dxf_zip(d, s)},  # DXF + map image
     "pole_summary": {"xlsx": lambda d, s, p: excel.pole_summary_xlsx(d, s), "pdf": lambda d, s, p: pdf.pole_summary_pdf(d, s)},
     "bom": {"xlsx": lambda d, s, p: excel.bom_xlsx(d, s), "pdf": lambda d, s, p: pdf.bom_pdf(d, s)},
@@ -93,7 +93,7 @@ _BASE = ["info.name", "info.area", "info.client", "info.prepared_by", "info.desi
 _NETWORK = ["poles", "homes", "nodes", "cables", "splitters"]
 DEPENDS = {
     "hld": _BASE + _NETWORK + ["info.boundary", "rules", "markups", "cad_layers", "info.sheet_map"],
-    "lld": _BASE + _NETWORK + ["info.boundary", "rules", "markups", "cad_layers", "info.sheet_map"],
+    "lld": _BASE + _NETWORK + ["info.boundary", "rules", "markups", "cad_layers", "info.sheet_map", "info.crs", "info.cad_scale"],
     "pole_summary": _BASE + ["poles", "nodes", "cables", "rules"],
     "bom": _BASE + _NETWORK + ["rules", "materials", "adjustments"],
     "boq": _BASE + _NETWORK + ["rules", "materials", "adjustments", "info.currency"],
@@ -107,21 +107,32 @@ DEPENDS = {
 
 
 def deliverable_hash(d: Design, deliverable: str) -> str:
+    return deliverable_hashes(d, [deliverable])[deliverable]
+
+
+def deliverable_hashes(d: Design, deliverables=None) -> dict[str, str]:
+    """{deliverable: hash of the design sections it is made from}. The design is dumped once and each section
+    serialised once: json.dumps of a dict with sort_keys is its sorted '"key":value' pieces joined, so the hashes
+    are the same as serialising each deliverable's part separately (and as before)."""
     import hashlib
     data = d.model_dump(mode="json")
-    keys = DEPENDS.get(deliverable, ["*"])
-    if "*" in keys:
-        part = data
-    else:
-        part = {}
-        for k in keys:
-            if "." in k:
-                a, b = k.split(".", 1)
-                part[k] = data.get(a, {}).get(b)
-            else:
-                part[k] = data.get(k)
-    raw = json.dumps(part, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(raw.encode()).hexdigest()[:12]
+    piece: dict[str, str] = {}
+
+    def enc(k, v):
+        if k not in piece:
+            piece[k] = json.dumps(k) + ":" + json.dumps(v, sort_keys=True, separators=(",", ":"))
+        return piece[k]
+    out = {}
+    for deliv in (DELIVERABLES if deliverables is None else deliverables):
+        keys = DEPENDS.get(deliv, ["*"])
+        if "*" in keys:
+            items = data.items()
+        else:
+            items = [(k, data.get(k.split(".", 1)[0], {}).get(k.split(".", 1)[1]) if "." in k else data.get(k))
+                     for k in keys]
+        raw = "{" + ",".join(enc(k, v) for k, v in sorted(items, key=lambda kv: kv[0])) + "}"
+        out[deliv] = hashlib.sha256(raw.encode()).hexdigest()[:12]
+    return out
 
 
 def filename(d: Design, deliverable: str, fmt: str, revision: int) -> str:

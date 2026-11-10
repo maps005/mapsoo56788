@@ -368,8 +368,9 @@ def splicing_xlsx(d: Design, st: Stamp) -> bytes:
     ws = _sheet(wb, "Splitters", st, f"Splitters - {d.info.name}", [
         ("Node", 14), ("Node type", 12), ("Splitter", 12), ("Stage", 7), ("Ratio", 8), ("Fed from (OLT)", 30)], True)
     kinds = {n.id: n.kind for n in d.nodes}
+    traces = splicing.trace_all(d)
     for r, s in enumerate(d.splitters, start=5):
-        tr = splicing.trace_upstream(d, s.id)
+        tr = traces[s.id]
         _row(ws, r, [s.node, kinds.get(s.node, ""), s.id, s.stage, s.ratio,
                      tr.get("olt") if tr["ok"] else f"NOT FED: {tr.get('reason', '')}"])
     ws = _sheet(wb, "Splice Records", st, "Splice / connection records by node", [
@@ -394,10 +395,11 @@ def splicing_xlsx(d: Design, st: Stamp) -> bytes:
             r += 1
     ws = _sheet(wb, "FAT Traces", st, "FAT to OLT traces", [("FAT", 14), ("Splitter", 12), ("Result", 30), ("Path", 90)])
     r = 5
+    traces = splicing.trace_all(d, 2)
     for s in d.splitters:
         if s.stage != 2:
             continue
-        tr = splicing.trace_upstream(d, s.id)
+        tr = traces[s.id]
         _row(ws, r, [s.node, s.id, tr.get("olt") if tr["ok"] else f"NOT FED: {tr['reason']}",
                      " | ".join(f"{x['node']}: {x['from']} -> {x['to']}" for x in tr["steps"])])
         r += 1

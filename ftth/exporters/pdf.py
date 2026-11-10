@@ -578,8 +578,9 @@ def _schematic(cv, d: Design, x, y, w, h):
     s1 = [s for s in d.splitters if s.stage == 1]
     s2 = [s for s in d.splitters if s.stage == 2]
     feeds, labels = {}, {}
+    traces = splicing.trace_all(d)
     for s in s1 + s2:
-        t = splicing.trace_upstream(d, s.id)
+        t = traces[s.id]
         up = next((st_["to"].split(" OUT")[0] for st_ in t["steps"] if " OUT " in st_["to"]), None)
         feeds[s.id] = (up, t["ok"])
         cores = [st_["to"] for st_ in t["steps"] if " core " in st_["to"]]

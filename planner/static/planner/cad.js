@@ -485,13 +485,15 @@ function renderLayers() {
 
 // ---- command line -----------------------------------------------------------------------------------------
 function parsePoint(t) {
-  // "x,y" or "dist<angle" from the drawing origin (metres, Y north, angles counter-clockwise from east);
-  // with @ in front, from the previous point
+  // "E,N" in the project's coordinates (UTM easting, northing; the local plane: x,y metres from its origin, Y north)
+  // or "dist<angle" from the origin (angles counter-clockwise from east); with @ in front, from the previous point
   const rel = t.startsWith("@"), s = rel ? t.slice(1) : t;
   let m = s.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/), v = null;
   if (m) v = [+m[1], -+m[2]];
   else if ((m = s.match(/^(\d+(?:\.\d+)?)\s*<\s*(-?\d+(?:\.\d+)?)$/))) { const a = +m[2] * Math.PI / 180; v = [+m[1] * Math.cos(a), -+m[1] * Math.sin(a)]; }
   if (!v) return null;
+  const g = cadGrid(S.D, CAD.proj);
+  if (!rel && g && m && s.includes(",")) { const [la, lo] = g.inv(v[0], -v[1]); return CAD.proj.xy(la, lo); }  // grid E, N
   if (!rel) return v;
   const from = snapFrom();
   if (!from) { toast("No previous point for @: click or type the first point"); return null; }
@@ -504,6 +506,11 @@ function feedPoint(q) {
 }
 function runCommandLine(raw) {
   const t = raw.trim(), T = t.toUpperCase();
+  if (CAD.textAt && t) {  // the text for the point the Text tool was given
+    const at = CAD.textAt; CAD.textAt = null;
+    addMarkup("text", [at], { text: t.slice(0, 300) });
+    return cadMsg(DRAW.text);
+  }
   if (!t) {  // Enter: finish the command in progress, or repeat the last one
     if (CAD.cmd) { const s = CMDS[CAD.cmd.name]; return s.enter ? cmdResult(s.enter(CAD.cmd)) : cmdEnd(); }
     if (DRAW[CAD.tool]) return drawFinish(false);
@@ -518,8 +525,12 @@ function runCommandLine(raw) {
     if (CAD.op?.kind === "rotate" && CAD.op.base) return CAD.applyAngle(+t);
     if (CAD.op?.kind === "offset") { $("#cadDist").value = t; return cadMsg("Offset: now click the side to offset to."); }
     const from = snapFrom(), cur = CAD.cursor;
-    if (from && cur) { const u = unit(sub(cur, from)); return feedPoint([from[0] + u[0] * +t, from[1] + u[1] * +t]); }
-    return toast("Type a command, or a point as x,y");
+    if (CAD.tool === "circle" && CAD.dpts.length === 1) return feedPoint([from[0] + +t, from[1]]);  // the radius
+    if (from) {  // a distance along the cursor's direction (east when the cursor has not moved off the point)
+      const dir = cur && len(sub(cur, from)) > 1e-6 ? unit(sub(cur, from)) : [1, 0];
+      return feedPoint([from[0] + dir[0] * +t, from[1] + dir[1] * +t]);
+    }
+    return toast("Type a command, or a point as E,N");
   }
   const a = ALIASES[T] || (T.startsWith("Z ") || T.startsWith("ZOOM ") ? ["zoom"] : null);
   if (!a) return toast(`Unknown command "${t}" (type ? for the list)`);
@@ -537,7 +548,7 @@ function runCommandLine(raw) {
   ({ erase: cadDelete, undo, redo, layers: renderLayers, ortho: () => $("#cadOrtho").click(), snap: () => $("#cadSnap").click(),
      osnap: () => { const d = $("#cadOsnap"); if (d) d.open = !d.open; },
      help: () => cadMsg("Draw: L PL REC POL C A PO T LE H · Dim: DAL DLI DRA DAN · Modify: M CO RO SC MI AR ARP O TR EX F J X BR MA E · " +
-       "Inquiry: DI AREA ID · LA layers · Z E/W/P · U REDO · points: x,y  @dx,dy  @dist<angle  or a distance") })[a[1]]?.();
+       "Inquiry: DI AREA ID · LA layers · Z E/W/P · U REDO · points: E,N  @dx,dy  @dist<angle  or a distance (a circle: its radius)") })[a[1]]?.();
 }
 
 const cmdInput = $("#cadCmd");

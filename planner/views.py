@@ -10,6 +10,7 @@ import math
 import re
 import shutil
 import uuid
+from collections import Counter
 from urllib.parse import quote
 from dataclasses import asdict
 from functools import wraps
@@ -312,7 +313,7 @@ def _state(request, p: Project, d: Design | None = None) -> dict:
     issues = validate.validate(d)
     h = _version(p)
     exports = {e.deliverable: e for e in p.exports.all()}
-    part = {k: package.deliverable_hash(d, k) for k in package.DELIVERABLES}
+    part = package.deliverable_hashes(d)
     feats = _features(request, p, d)
     mine = occupations.deliverables(package.relevant(d), feats)
     occ = occupation_in(request.user, p.company)
@@ -753,11 +754,12 @@ def calculations(request, pid):
 def splicing_view(request, pid):
     d = _project(request, pid, edit=False).design
     node = request.GET.get("node")
+    traces = splicing.trace_all(d, 2)
+    at_node = Counter(s.node for s in d.splitters if s.stage == 2)  # FATs with two splitters: name both
     return JsonResponse({
         "cores": splicing.core_table(d),
         "nodes": [splicing.node_splicing(d, n.id) for n in d.nodes if node in (None, "", n.id)],
-        "traces": {(s.node if sum(x.node == s.node and x.stage == 2 for x in d.splitters) == 1
-                    else f"{s.node} ({s.id})"): splicing.trace_upstream(d, s.id)
+        "traces": {(s.node if at_node[s.node] == 1 else f"{s.node} ({s.id})"): traces[s.id]
                    for s in d.splitters if s.stage == 2},
         "colours": splicing.COLOURS,
     })
@@ -1038,7 +1040,7 @@ def export_package(request, pid):
         raise ApiError(409, f"{len(errs)} validation error(s). Fix them or download anyway.")
     mine = occupations.deliverables(package.relevant(d), _features(request, p, d))
     content = package.build_package(d, stamp(d, rev, _doc_brand(request, p)), _photo_dir(p.id), only=mine)
-    _record(request, p, {k: package.deliverable_hash(d, k) for k in mine}, rev)
+    _record(request, p, package.deliverable_hashes(d, mine), rev)
     return _download(content, package.filename(d, "package", "zip", rev), "zip")
 
 

@@ -419,9 +419,10 @@ def sections(d: Design) -> list[Section]:
             if sp.stage == 2:
                 fed_by[_feeding_pon(idx, sp.id)].append(sp)
         rows = []
+        traces = splicing.trace_all(d, 1)
         for sp in sorted(stage1, key=lambda x: x.id):
             kids = fed_by.get(sp.id, [])
-            olt = splicing.trace_upstream(d, sp.id)
+            olt = traces[sp.id]
             rows.append([sp.id, sp.node, sp.ratio, olt.get("olt", "") if olt["ok"] else "not allocated",
                          f"{len(kids)}/{sp.outputs}", sum(load.get(k.node, 0) for k in kids)])
         sol.table(["PON splitter", "Location", "Ratio", "OLT port", "Outputs used", "Homepasses"], rows)

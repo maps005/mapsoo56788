@@ -12,6 +12,7 @@ geotechnical and hydrological investigations, and the Water Resources Authority'
 """
 from __future__ import annotations
 
+import copy
 import math
 from typing import Optional
 
@@ -189,10 +190,22 @@ def growth(T: float, cv: float) -> float:
 # ---------------------------------------------------------------------------------------------------------
 # the design
 # ---------------------------------------------------------------------------------------------------------
+_DESIGNS: dict[str, Optional[dict]] = {}  # by the dam's data: a page load asks for the design several times
+
+
 def design(dm: Dam) -> Optional[dict]:
     """The preliminary design, or None without a survey (the axis profile and the reservoir table)."""
     if len(dm.axis) < 2 or len(dm.reservoir) < 2:
         return None
+    key = dm.model_dump_json()
+    if key not in _DESIGNS:
+        if len(_DESIGNS) > 64:
+            _DESIGNS.clear()
+        _DESIGNS[key] = _design(dm)
+    return copy.deepcopy(_DESIGNS[key])
+
+
+def _design(dm: Dam) -> Optional[dict]:
     axis = sorted(dm.axis)
     ch = [r[0] for r in axis]
     gl = [r[1] for r in axis]

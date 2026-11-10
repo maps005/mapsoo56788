@@ -161,6 +161,10 @@
         <button id="cadOrtho" title="Ortho: moves only horizontal or vertical (F8)">Ortho</button>
         <input id="cadAngle" type="number" step="any" placeholder="angle °" title="Rotation angle in degrees (counter-clockwise); Enter applies" hidden>
         <span class="sep"></span>
+        <label class="muted" title="Drawing scale: the paper size of symbols and text, and the LLD route sheets">Scale 1:<select id="cadScale">
+          <option>500</option><option>1000</option><option>1250</option><option>1500</option><option>2000</option><option>2500</option><option>5000</option></select></label>
+        <label class="muted" title="Coordinate system of the DXF, the coordinate readout and typed points">Coordinates <select id="cadCrs">
+          <option value="utm">WGS 84 / UTM</option><option value="arc1960">Arc 1960 / UTM</option><option value="local">Local plane</option></select></label>
         <label class="muted">Map <select id="cadMap"><option value="off">Off</option><option value="streets">Streets</option><option value="satellite">Satellite</option></select></label>
         <details class="layers"><summary>Layers</summary><div id="lldLayers"></div></details>
         <label class="muted">Text <input type="range" id="lldText" min="0.5" max="2.5" step="0.1"></label>
@@ -219,7 +223,7 @@
       </div>
       <div class="cadwrap"><div id="lldBig" class="lldbox big"></div><aside id="cadProps" class="cadprops" hidden></aside></div>
       <div class="cadcmd"><span>Command:</span><input id="cadCmd" autocomplete="off" spellcheck="false"
-        placeholder="type a command (L, PL, C, A, M, CO, RO, SC, MI, TR, F, LA...) or a point (x,y  @dx,dy  @d<angle); ? lists them"></div>
+        placeholder="type a command (L, PL, C, A, M, CO, RO, SC, MI, TR, F, LA...) or a point (E,N  @dx,dy  @d<angle); ? lists them"></div>
       <div id="lldMsg" class="muted"></div>
       <p class="muted">Same data as the DXF and the A3 PDF sheets. Open the DXF in AutoCAD and save as DWG if a native DWG file is required.</p>
     </div>
