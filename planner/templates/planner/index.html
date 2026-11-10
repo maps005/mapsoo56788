@@ -86,6 +86,7 @@
   <button data-tab="report" data-feature="report">Survey report</button>
   <button data-tab="qa">QA &amp; approval</button>
   <button data-tab="outputs">Outputs</button>
+  <button data-tab="script" title="Build or change the project from lines of commands">Script</button>
   <button data-tab="settings">Settings</button>
 </nav>
 <main>
@@ -235,7 +236,7 @@
       <aside class="bldside"><p class="muted">Enter the survey and parameters here, or fill in the Excel data workbook (axis
           profile, reservoir table, parameters) and upload it.</p>
           <div class="row xlsbar"><a data-template href="#" download><button type="button">Download Excel</button></a>
-          <label class="filebtn" title="Upload the filled-in workbook: changed values replace the current ones">Upload Excel<input type="file" data-upload-data accept=".xlsx,.xlsm" hidden></label></div>
+          <label class="filebtn" title="The filled-in Excel workbook, a CSV table, the boundary (and a dam's axis) from a KML/KMZ or DXF/DWG, or site photos (JPG/PNG)">Upload data<input type="file" data-upload-data accept=".xlsx,.xlsm,.csv,.kml,.kmz,.dxf,.dwg,.png,.jpg,.jpeg" hidden></label></div>
           <pre class="report" data-upload-report hidden></pre>
         <div id="damForm" class="form"></div></aside>
       <div class="damres"><h3>Design</h3><div id="damResults"></div></div>
@@ -248,7 +249,7 @@
           <p class="muted">Ground conditions the foundations depend on, and what the building must provide: QA checks the
             design against them and the report includes them.</p>
           <div class="row xlsbar"><a data-template href="#" download><button type="button">Download Excel</button></a>
-          <label class="filebtn" title="Upload the filled-in workbook: changed values replace the current ones">Upload Excel<input type="file" data-upload-data accept=".xlsx,.xlsm" hidden></label></div>
+          <label class="filebtn" title="The filled-in Excel workbook, a CSV table, the boundary (and a dam's axis) from a KML/KMZ or DXF/DWG, or site photos (JPG/PNG)">Upload data<input type="file" data-upload-data accept=".xlsx,.xlsm,.csv,.kml,.kmz,.dxf,.dwg,.png,.jpg,.jpeg" hidden></label></div>
           <pre class="report" data-upload-report hidden></pre>
           <div id="bldSiteForm" class="form"></div></details>
         <div data-feature="building_design">
@@ -371,7 +372,7 @@
       <div class="row"><h3>Import survey data</h3><span class="spacer"></span>
         <a data-template href="/api/survey-template.xlsx" download><button type="button">Download Excel template</button></a></div>
       <form id="importForm" class="row">
-        <input type="file" name="file" accept=".xlsx,.xlsm,.csv,.txt,.kml,.kmz,.gpx" required>
+        <input type="file" name="file" accept=".xlsx,.xlsm,.csv,.txt,.kml,.kmz,.gpx,.dxf,.dwg,.png,.jpg,.jpeg" required>
         <label>Rows are <select name="target">
           <option value="auto">auto (detect from sheet names / columns)</option><option value="poles">poles</option>
           <option value="homes">homes / MDUs</option><option value="nodes">equipment</option>
@@ -380,7 +381,9 @@
         <label>Status <select name="status"><option>existing</option><option>proposed</option></select></label>
         <button type="submit">Import</button>
       </form>
-      <p class="muted">An Excel workbook can hold several sheets (Poles, Homes, Equipment, Splitters, Cables), all imported in one go.
+      <p class="muted">Files: Excel, CSV, KML/KMZ, GPX, CAD drawings (DXF; DWG where the server can convert it, else save it as DXF)
+        and site photos (JPG/PNG, placed at their GPS position). A drawing's layers are read like a KMZ's folders (POLES, FAT, CABLE 48C...).
+        An Excel workbook can hold several sheets (Poles, Homes, Equipment, Splitters, Cables), all imported in one go.
         Use the template, or any sheet with named columns (ID, Latitude, Longitude, Type, Height, Viable HP, Kind, Path...).
         A project's own Project Data Excel export can be uploaded back. Rows without valid coordinates are kept and flagged so you can fix them below.</p>
       <pre id="importReport" class="report"></pre>
@@ -480,6 +483,18 @@
     </div>
   </section>
 
+  <section id="tab-script" class="tab">
+    <div class="grid2 scriptgrid">
+      <div class="card"><div class="row"><h3>Design script</h3><span class="spacer"></span>
+        <button id="scriptExample" type="button">Load example</button><button id="scriptRun" class="ok" type="button">Run script</button></div>
+        <p class="muted">One command a line; the whole script runs or, if a line is wrong, nothing changes and that line is shown.
+          Points are lat,lon or E,N in the project's coordinate system. Run it again after editing: features with the same ID are updated.</p>
+        <textarea id="scriptText" rows="22" spellcheck="false" placeholder="pole P001 -1.2201,36.8955 status=proposed"></textarea>
+        <pre id="scriptLog" class="report"></pre></div>
+      <div class="card"><h3>Commands</h3><pre id="scriptHelp" class="report scripthelp"></pre></div>
+    </div>
+  </section>
+
   <section id="tab-outputs" class="tab">
     <div class="card"><div class="row"><h3>Deliverables</h3><span class="spacer"></span>
       <button id="btnPackage" class="ok">Download complete design package (.zip)</button></div>
@@ -548,6 +563,7 @@
 <script src="{% static 'planner/cad.js' %}"></script>
 <script src="{% static 'planner/building3d.js' %}"></script>
 <script src="{% static 'planner/dam.js' %}"></script>
+<script src="{% static 'planner/script.js' %}"></script>
 <script src="{% static 'planner/assistant.js' %}"></script>
 <script src="{% static 'planner/share.js' %}"></script>
 <script src="{% static 'planner/sector.js' %}"></script>

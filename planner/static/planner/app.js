@@ -650,6 +650,7 @@ async function renderActiveTab(full) {
   if (t === "report" && full) renderReport();
   if (t === "qa") await renderQA();
   if (t === "outputs") renderOutputs();
+  if (t === "script" && typeof renderScript === "function") renderScript();
   if (t === "map") renderProps();
 }
 

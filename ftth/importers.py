@@ -1140,6 +1140,11 @@ def import_file(d: Design, filename: str, data: bytes, target: str = "auto", sta
         import_placemarks(d, parse_kml(data), target, report, status)
     elif low.endswith(".gpx"):
         import_placemarks(d, parse_gpx(data), target, report, status)
+    elif low.endswith((".dxf", ".dwg")):  # a CAD drawing: its layers read like a KMZ's folders
+        from .cadimport import parse_cad
+        pms, notes = parse_cad(filename, data, d)
+        import_placemarks(d, pms, target, report, status)
+        report.problems[:0] = notes
     elif low.endswith((".xlsx", ".xlsm")):
         sheets = [(n, r) for n, r in read_workbook(data) if r]
         if not sheets:

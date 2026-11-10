@@ -30,6 +30,7 @@ urlpatterns = [
     path(f"{P}/indicative-rates", views.indicative_rates),
     path(f"{P}/assign-homes", views.assign_homes),
     path(f"{P}/allocate", views.allocate),
+    path(f"{P}/script", views.run_script),
     path(f"{P}/auto-design", views.auto_design),
     path(f"{P}/ai-chat", views.ai_chat),
     path(f"{P}/ai-apply", views.ai_apply),

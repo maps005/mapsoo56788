@@ -602,16 +602,20 @@ def import_data(request, pid):
         raise ApiError(400, "Choose a file to import")
     target, status = request.POST.get("target", "auto"), request.POST.get("status", "existing")
     data = f.read()
+    low = f.name.lower()
+    if low.endswith((".png", ".jpg", ".jpeg")):  # a site photograph, placed at its GPS position when it has one
+        st, msg = _photo_upload(request, pid, f.name, data)
+        return JsonResponse(st | {"import": {"added": 1, "updated": 0, "problems": [msg]}})
     sector = sectors.get(_p.design.info.sector)
-    if sector.get("dam") or sector.get("construction"):  # a dam's or a building's data workbook
+    if sector.get("dam") or sector.get("construction"):  # a dam's or a building's data
         dam = bool(sector.get("dam"))
         _need(request, _p, _p.design, "dam" if dam else "building_design")
-        if not f.name.lower().endswith((".xlsx", ".xlsm")):
-            raise ApiError(400, "Upload the Excel data workbook (.xlsx): download the template first")
+        if not low.endswith(workbooks.SECTOR_TYPES):
+            raise ApiError(400, "Upload the Excel data workbook, a CSV table, a KML/KMZ or a DXF/DWG drawing")
 
         def run_wb(d):
             try:
-                return (workbooks.import_dam if dam else workbooks.import_building)(d, data)
+                return workbooks.import_sector_file(d, f.name, data, dam)
             except ValueError as e:
                 raise ApiError(400, str(e))
         st, lines = _operate(request, pid, run_wb)
@@ -633,6 +637,55 @@ def import_data(request, pid):
             report["problems"].insert(1, f"{added} survey photo(s) from the KMZ added to the report")
             st = _state(request, _project(request, pid, edit=False))
     return JsonResponse(st | {"import": report})
+
+
+def _exif_position(blob: bytes) -> tuple[float, float] | None:
+    """The GPS latitude / longitude a phone or camera wrote into the photo, if any."""
+    from io import BytesIO
+    try:
+        from PIL import Image
+        with Image.open(BytesIO(blob)) as im:
+            gps = im.getexif().get_ifd(0x8825)
+        if not gps or 2 not in gps or 4 not in gps:
+            return None
+
+        def deg(v, ref):
+            d_, m_, s_ = (float(x) for x in v)
+            out = d_ + m_ / 60 + s_ / 3600
+            return -out if ref in ("S", "W") else out
+        lat, lon = deg(gps[2], gps.get(1, "N")), deg(gps[4], gps.get(3, "E"))
+        return (lat, lon) if -90 <= lat <= 90 and -180 <= lon <= 180 and (lat or lon) else None
+    except Exception:  # noqa: BLE001 - no or unreadable EXIF
+        return None
+
+
+def _photo_upload(request, pid: str, filename: str, blob: bytes):
+    """Store an uploaded photo; with GPS in it, link it to the nearest feature within 30 m. (state, message)"""
+    from ftth.geo import haversine
+    name = _store_image(pid, blob)
+    if name is None:
+        raise ApiError(400, f"{filename} is not a valid JPG or PNG image")
+    at = _exif_position(blob)
+
+    def add(d):
+        near, dist = None, 30.0
+        if at:
+            for coll in (d.poles, d.homes, d.nodes):
+                for x in coll:
+                    if x.lat is not None and x.lon is not None:
+                        m = haversine(at[0], at[1], x.lat, x.lon)
+                        if m < dist:
+                            near, dist = x.id, m
+        d.photos.append(Photo(id=name.split(".")[0], file=name, caption=Path(filename).stem[:500], feature=near))
+        return near
+    try:
+        st, near = _operate(request, pid, add)
+    except Exception:
+        (_photo_dir(pid) / name).unlink(missing_ok=True)
+        raise
+    where = (f"taken at {at[0]:.6f}, {at[1]:.6f}" + (f", linked to {near}" if near else ", no feature within 30 m")
+             if at else "no GPS position in the photo")
+    return st, f"Photo {filename} added to the survey photographs ({where})"
 
 
 def _store_image(pid: str, blob: bytes) -> str | None:
@@ -728,6 +781,28 @@ def auto_design(request, pid):
             raise ApiError(400, str(e))
     st, res = _operate(request, pid, run)
     return JsonResponse(st | {"result": res})
+
+
+@api("POST")
+def run_script(request, pid):
+    """Run a design script (the Script tab) on the project: all of it, or nothing if a line fails."""
+    from ftth import script
+    text = _body(request).get("script")
+    if not isinstance(text, str) or not text.strip():
+        raise ApiError(400, "Write the script first")
+    if len(text) > 500_000:
+        raise ApiError(400, "The script is too long (500 kB at most)")
+    p = _project(request, pid)
+
+    def run(d):
+        if d.info.design_status == "approved":
+            raise ApiError(409, "The design is approved: return it to draft before running a script")
+        try:
+            return script.run(d, text, _features(request, p, d))
+        except script.ScriptError as e:
+            raise ApiError(400, str(e), line=e.line)
+    st, log = _operate(request, pid, run)
+    return JsonResponse(st | {"log": log})
 
 
 @api("POST")

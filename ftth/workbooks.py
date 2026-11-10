@@ -182,6 +182,92 @@ def _open(data: bytes):
         raise ValueError(f"Not an Excel workbook (.xlsx): {e.__class__.__name__}") from e
 
 
+SECTOR_TYPES = (".xlsx", ".xlsm", ".csv", ".txt", ".kml", ".kmz", ".dxf", ".dwg")
+
+
+def import_sector_file(d: Design, filename: str, data: bytes, dam: bool) -> list[str]:
+    """A dam's or a building's data from any supported file: the Excel workbook, a CSV table (an axis profile,
+    a reservoir table or a schedule of rooms), or a KML/KMZ / DXF/DWG with the plot or site boundary (and a
+    dam's axis line)."""
+    low = filename.lower()
+    if low.endswith((".xlsx", ".xlsm")):
+        return import_dam(d, data) if dam else import_building(d, data)
+    if low.endswith((".csv", ".txt")):
+        return _import_csv(d, filename, data, dam)
+    return _import_geometry(d, filename, data, dam)
+
+
+def _import_csv(d: Design, filename: str, data: bytes, dam: bool) -> list[str]:
+    from .importers import read_table
+    rows = read_table(filename, data)
+    if not rows:
+        raise ValueError("No data rows in the CSV")
+    keys = [str(k).lower() for k in rows[0]]
+    col = lambda *words: next((k for k in rows[0] if any(w in str(k).lower() for w in words)), None)  # noqa: E731
+    report: list[str] = []
+    if dam:
+        dm = d.dam or Dam()
+        ch, gl, fm = col("chainage", "ch"), col("ground", "level", "rl", "elev"), col("firm", "depth")
+        lv, ar = col("level", "elev", "rl"), col("area")
+        if ar and lv:
+            tab = sorted([_num(r[lv]), _num(r[ar])] for r in rows if _num(r[lv]) is not None and _num(r[ar]) is not None)
+            d.dam = _apply(dm, {"reservoir": tab}, report, "Dam")
+            return report + [f"Reservoir: {len(tab)} levels from {filename}"]
+        if ch and gl:
+            tab = sorted([_num(r[ch]), _num(r[gl]), (_num(r[fm]) if fm else 0.0) or 0.0] for r in rows
+                         if _num(r[ch]) is not None and _num(r[gl]) is not None)
+            d.dam = _apply(dm, {"axis": tab}, report, "Dam")
+            return report + [f"Axis profile: {len(tab)} points from {filename}"]
+        raise ValueError(f"CSV columns {', '.join(keys)}: expected chainage, ground level (and depth to firm "
+                         "ground) for the axis, or level and area for the reservoir")
+    name, cnt, area = col("room", "name", "space"), col("number", "count", "qty", "no"), col("area")
+    if not name:
+        raise ValueError(f"CSV columns {', '.join(keys)}: expected room, number and area each (the schedule of rooms)")
+    rooms = []
+    for r in rows:
+        if r.get(name) and str(r[name]).strip():
+            try:
+                rooms.append(BriefRoom(name=str(r[name]).strip()[:60], count=int(_num(r.get(cnt)) or 1) if cnt else 1,
+                                       area=(_num(r.get(area)) or 0.0) if area else 0.0).model_dump())
+            except (ValidationError, ValueError):
+                report.append(f"'{r[name]}' not accepted")
+    d.info.site = _apply(d.info.site, {"schedule": rooms}, report, "Site")
+    return report + [f"Accommodation: {len(rooms)} kinds of room from {filename}"]
+
+
+def _import_geometry(d: Design, filename: str, data: bytes, dam: bool) -> list[str]:
+    """The site / plot boundary (the largest area) and, for a dam, its axis (the longest line, or a line on a
+    layer / folder named AXIS)."""
+    from .geo import haversine
+    from .importers import parse_kml
+    if filename.lower().endswith((".kml", ".kmz")):
+        pms, notes = parse_kml(data), []
+    else:
+        from .cadimport import parse_cad
+        pms, notes = parse_cad(filename, data, d)
+    polys = [p for p in pms if p["geom"] == "polygon" and len(p["coords"]) >= 3]
+    lines = [p for p in pms if p["geom"] == "line" and len(p["coords"]) >= 2]
+    report = [n for n in notes if n]
+
+    def size(c):
+        return sum(haversine(*c[k - 1], *c[k]) for k in range(1, len(c)))
+    if polys:
+        best = max(polys, key=lambda p: size(p["coords"]))
+        d.info.boundary = [[round(la, 7), round(lo, 7)] for la, lo in best["coords"]]
+        report.append(f"{'Site' if dam else 'Plot'} boundary: {len(best['coords'])} corners"
+                      + (f" ({best['name']})" if best["name"] else ""))
+    if dam and lines:
+        axis = [p for p in lines if "AXIS" in (p["name"] + " " + " ".join(p["path"])).upper()]
+        best = max(axis or lines, key=lambda p: size(p["coords"]))
+        a, b = best["coords"][0], best["coords"][-1]
+        d.dam = _apply(d.dam or Dam(), {"axis_start": [a[0], a[1]], "axis_end": [b[0], b[1]]}, report, "Dam")
+        report.append(f"Dam axis: {size(best['coords']):.0f} m from {a[0]:.6f}, {a[1]:.6f} to {b[0]:.6f}, {b[1]:.6f} "
+                      "(enter its ground profile in the Axis profile)")
+    if len(report) == len([n for n in notes if n]):
+        raise ValueError("No boundary area" + (" or axis line" if dam else "") + f" found in {filename}")
+    return report
+
+
 def import_dam(d: Design, data: bytes) -> list[str]:
     wb = _open(data)
     report: list[str] = []

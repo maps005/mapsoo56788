@@ -472,3 +472,10 @@ dialog.sharedlg::backdrop { background: rgba(10,20,35,.45); }
 .bldsite { margin: 0 0 10px; border: 1px solid var(--line, #d8dee6); border-radius: 6px; padding: 6px 8px; background: #f7f9fb; }
 .bldsite summary { cursor: pointer; font-weight: 600; }
 .bldsite textarea { width: 100%; font: inherit; font-size: 12px; }
+
+/* Script tab */
+#scriptText { width: 100%; font-family: Consolas, "Courier New", monospace; font-size: 13px; line-height: 1.45; tab-size: 2; }
+#scriptLog.err { background: #fdecea; color: var(--err); }
+.scripthelp { max-height: none; font-family: Consolas, "Courier New", monospace; }
+.scriptgrid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+@media (max-width: 900px) { .scriptgrid { grid-template-columns: 1fr; } }
