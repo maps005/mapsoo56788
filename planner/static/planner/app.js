@@ -217,11 +217,13 @@ const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
   { ...TILE, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' });
 const carto = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
   { ...TILE, maxNativeZoom: 20, subdomains: "abcd", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' });
-const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { ...TILE, attribution: "Imagery © Esri" });
-const BASE = { "Streets (OpenStreetMap)": osm, "Streets (CARTO)": carto, Satellite: sat };
+const esriSat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { ...TILE, attribution: "Imagery © Esri" });
+let sat = esriSat;  // the Satellite tick box: Google's hybrid imagery when the server has a Google key
+const SATS = new Set([esriSat]);
+const BASE = { "Streets (OpenStreetMap)": osm, "Streets (CARTO)": carto, "Satellite (Esri)": esriSat };
 let streets = osm;
 try { streets = BASE[localStorage.getItem("ftth.basemap")] || osm; } catch (e) { /* storage unavailable */ }
-if (streets === sat) streets = osm;
+if (SATS.has(streets)) streets = osm;
 streets.addTo(map);
 let osmErrors = 0;  // OpenStreetMap down or refusing this server: fall back to the CARTO street map
 osm.on("tileerror", () => {
@@ -233,14 +235,58 @@ osm.on("tileerror", () => {
 const G = { boundary: L.layerGroup().addTo(map), drops: L.layerGroup().addTo(map), cables: L.layerGroup().addTo(map),
             homes: L.layerGroup().addTo(map), poles: L.layerGroup().addTo(map), nodes: L.layerGroup().addTo(map),
             draw: L.layerGroup().addTo(map) };
-L.control.layers(BASE,
+const layerCtl = L.control.layers(BASE,
   { Boundary: G.boundary, "Drop links": G.drops, Cables: G.cables, Homes: G.homes, Poles: G.poles, Equipment: G.nodes }).addTo(map);
 map.on("baselayerchange", (e) => {
-  $("#satellite").checked = e.layer === sat;
-  if (e.layer !== sat) streets = e.layer;
+  $("#satellite").checked = SATS.has(e.layer);
+  if (SATS.has(e.layer)) sat = e.layer; else streets = e.layer;
   try { localStorage.setItem("ftth.basemap", e.name); } catch (err) { /* storage unavailable */ }
 });
 $("#satellite").onchange = (e) => { if (e.target.checked) { map.removeLayer(streets); sat.addTo(map); } else { map.removeLayer(sat); streets.addTo(map); } };
+
+// Google Maps imagery (Map Tiles API, sessions from the server): satellite, hybrid (imagery with roads and names)
+// and road map; Google's copyright for the view comes from its viewport service, as its terms require
+let GOOGLE = null;
+function googleLayer(type, label) {
+  const g = GOOGLE, lay = L.tileLayer(`https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session=${g.sessions[type]}&key=${g.key}`,
+    { maxZoom: 22, maxNativeZoom: type === "roadmap" ? 22 : 21, attribution: "Google", referrerPolicy: "strict-origin-when-cross-origin" });
+  lay.gType = type;
+  layerCtl.addBaseLayer(lay, label);
+  return lay;
+}
+async function googleCopyright() {
+  const lay = [...SATS, streets].find((l) => l.gType && map.hasLayer(l));
+  if (!lay) return;
+  const b = map.getBounds(), q = new URLSearchParams({ session: GOOGLE.sessions[lay.gType], key: GOOGLE.key, zoom: map.getZoom(),
+    north: b.getNorth(), south: b.getSouth(), east: b.getEast(), west: b.getWest() });
+  try {
+    const r = await fetch(`https://tile.googleapis.com/tile/v1/viewport?${q}`);
+    const j = await r.json();
+    lay.options.attribution = `Google${j.copyright ? " · " + j.copyright : ""}`;
+    map.attributionControl.removeAttribution(lay._gAttr || "Google"); map.attributionControl.addAttribution(lay.options.attribution);
+    lay._gAttr = lay.options.attribution;
+  } catch (_) { /* the copyright stays "Google" */ }
+}
+(async () => {
+  try { GOOGLE = await api("/api/maps/google"); } catch (_) { return; }
+  if (!GOOGLE?.enabled) { if (GOOGLE?.error) console.warn(GOOGLE.error); GOOGLE = null; return; }
+  const hyb = googleLayer("hybrid", "Google hybrid"), gs = googleLayer("satellite", "Google satellite"), gr = googleLayer("roadmap", "Google map");
+  SATS.add(hyb); SATS.add(gs);
+  BASE["Google hybrid"] = hyb; BASE["Google satellite"] = gs; BASE["Google map"] = gr;
+  const wasSat = map.hasLayer(esriSat);
+  sat = hyb;  // the newest imagery by default
+  if (wasSat) { map.removeLayer(esriSat); hyb.addTo(map); }
+  let saved = null;
+  try { saved = BASE[localStorage.getItem("ftth.basemap")]; } catch (_) { /* storage unavailable */ }
+  if (saved && saved.gType && !map.hasLayer(saved)) { map.eachLayer((l) => { if (l instanceof L.TileLayer) map.removeLayer(l); }); saved.addTo(map); if (!SATS.has(saved)) streets = saved; else sat = saved; }
+  map.on("moveend baselayerchange", googleCopyright);
+  googleCopyright();
+  if (typeof drawOvMap === "function" && S.D) drawOvMap();
+})();
+$("#btnEarth")?.addEventListener("click", () => {  // Google Earth (web) at the map's centre: the latest imagery, 3D
+  const c = map.getCenter(), m = 591657550 / 2 ** map.getZoom();  // metres of view at this zoom, roughly
+  window.open(`https://earth.google.com/web/@${c.lat.toFixed(6)},${c.lng.toFixed(6)},0a,${Math.round(m / 2)}d,35y,0h,0t,0r`, "_blank", "noopener");
+});
 
 function icon(type, obj, selected) {
   let size = 12, style = "", html = "";

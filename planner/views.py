@@ -446,6 +446,39 @@ def me(request):
                          "company": company_dict(active_company(u))})
 
 
+_GOOGLE_SESSIONS: dict[str, tuple[str, float]] = {}  # map type: (session token, expiry), shared by all users
+GOOGLE_MAP_TYPES = {"satellite": {"mapType": "satellite"},
+                    "hybrid": {"mapType": "satellite", "layerTypes": ["layerRoadmap"]},
+                    "roadmap": {"mapType": "roadmap"}}
+
+
+@api("GET")
+def google_maps(request):
+    """Google Map Tiles API sessions for the browser's map layers ({"enabled": false} without an API key)."""
+    import time
+    import urllib.request
+    key = settings.GOOGLE_MAPS_API_KEY
+    if not key:
+        return JsonResponse({"enabled": False})
+    out = {}
+    for name, body in GOOGLE_MAP_TYPES.items():
+        tok, exp = _GOOGLE_SESSIONS.get(name, ("", 0.0))
+        if time.time() > exp - 3600:
+            req = urllib.request.Request(f"https://tile.googleapis.com/v1/createSession?key={quote(key)}",
+                                         data=json.dumps({**body, "language": "en-GB", "region": "KE"}).encode(),
+                                         headers={"Content-Type": "application/json"}, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    j = json.loads(r.read())
+                tok, exp = j["session"], float(j.get("expiry") or time.time() + 86400)
+                _GOOGLE_SESSIONS[name] = (tok, exp)
+            except Exception as e:  # noqa: BLE001 - a bad key, the API not enabled, no network
+                return JsonResponse({"enabled": False, "error": f"Google Map Tiles API: {e.__class__.__name__} "
+                                                                "(check the key and that the Map Tiles API is enabled)"})
+        out[name] = tok
+    return JsonResponse({"enabled": True, "key": key, "sessions": out})
+
+
 # ---------------------------------------------------------------------------
 # Projects
 # ---------------------------------------------------------------------------

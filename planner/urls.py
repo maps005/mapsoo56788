@@ -18,6 +18,7 @@ urlpatterns = [
     path("api/ai-chat", views.ai_chat_status),
     path("api/people", views.find_people),
     path("api/survey-template.xlsx", views.survey_template),
+    path("api/maps/google", views.google_maps),
     path("api/projects", views.projects),
     path(P, views.project),
     path(f"{P}/share", views.share),

@@ -31,6 +31,8 @@ def env_bool(name: str, default: bool) -> bool:
 
 # Vercel (serverless): read-only code folder, so data goes to /tmp and the database must be external (DATABASE_URL)
 ON_VERCEL = bool(os.environ.get("VERCEL"))
+# Google Maps imagery on screen (Map Tiles API; restrict the key to this site's address in Google Cloud)
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()
 DEBUG = env_bool("DJANGO_DEBUG", not ON_VERCEL)
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY") or (
     "dev-only-insecure-key-change-me" if DEBUG else None)

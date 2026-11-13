@@ -118,10 +118,15 @@ async function renderOverview() {
 function drawOvMap() {
   if (!ovMap) {
     ovMap = L.map("ovMap", { zoomControl: false, scrollWheelZoom: false });
-    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    ovMap._esri = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       { ...TILE, attribution: "Imagery © Esri" }).addTo(ovMap);
     L.control.zoom({ position: "topright" }).addTo(ovMap);
     ovLayer = L.layerGroup().addTo(ovMap);
+  }
+  if (typeof GOOGLE !== "undefined" && GOOGLE && !ovMap._google) {  // Google's imagery once the server has given a session
+    ovMap.removeLayer(ovMap._esri);
+    ovMap._google = L.tileLayer(`https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}?session=${GOOGLE.sessions.hybrid}&key=${GOOGLE.key}`,
+      { maxZoom: 22, maxNativeZoom: 21, attribution: "Google" }).addTo(ovMap);
   }
   ovMap.invalidateSize();
   ovLayer.clearLayers();
@@ -1058,11 +1063,18 @@ const CAD_TILES = {
   streets: [(z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`, "© OpenStreetMap contributors"],
   satellite: [(z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`, "Imagery © Esri"],
 };
+function cadTiles(kind) {  // Google's imagery / map under the CAD view when the server has a Google key
+  if (typeof GOOGLE !== "undefined" && GOOGLE && (kind === "google" || kind === "googlemap")) {
+    const t = kind === "google" ? "satellite" : "roadmap";
+    return [(z, x, y) => `https://tile.googleapis.com/v1/2dtiles/${z}/${x}/${y}?session=${GOOGLE.sessions[t]}&key=${GOOGLE.key}`, "Google"];
+  }
+  return CAD_TILES[kind];
+}
 function drawBasemap() {
   const svg = $("#lldBig svg"), g = svg?.querySelector("#cadBasemap"), attr = $("#cadAttr");
   if (!g || !CAD.proj) return;
   g.innerHTML = "";
-  const src = CAD_TILES[PREFS.cad_map];
+  const src = cadTiles(PREFS.cad_map);
   if (attr) attr.textContent = src ? src[1] : "";
   if (!src) return;
   const rc = svg.getBoundingClientRect();
@@ -1330,6 +1342,9 @@ function renderLld() {
       $(`#lldBig [data-layer="${k}"]`)?.setAttribute("display", cb.checked ? "inline" : "none");
     }));
     $("#lldText").value = P.cad_text; $("#lldGrid").checked = P.cad_grid; $("#lldDark").checked = P.cad_dark;
+    for (const [v, t] of [["google", "Google satellite"], ["googlemap", "Google map"]]) {  // on screen only, not in exports
+      if (typeof GOOGLE !== "undefined" && GOOGLE && !$(`#cadMap option[value="${v}"]`)) $("#cadMap").add(new Option(t, v));
+    }
     $("#cadMap").value = P.cad_map || "off"; cadToggles();
     $("#cadSheetMap").value = S.D.info.sheet_map || "off";
     $("#cadScale").value = String(S.D.info.cad_scale || 1500);

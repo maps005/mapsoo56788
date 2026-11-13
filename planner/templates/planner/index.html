@@ -143,7 +143,7 @@
   <section id="tab-lld" class="tab">
     <div class="card dark">
       <div class="row"><h3>LLD drawing (CAD view)</h3><span class="spacer"></span>
-        <label class="muted" title="Map printed under the LLD / HLD PDF sheets and shipped with the DXF (saved with the project)">Map on PDF / DXF
+        <label class="muted" title="Map printed under the LLD / HLD PDF sheets and shipped with the DXF (saved with the project). Google imagery is shown on screen only: Google's terms do not allow it in exported files">Map on PDF / DXF
           <select id="cadSheetMap"><option value="off">Off</option><option value="streets">Streets</option><option value="satellite">Satellite</option></select></label>
         <a data-dl="lld.dxf"><button>Download DXF</button></a><a data-dl="lld.zip"><button title="The DXF with the map image next to it (keep both in one folder)">DXF + map (ZIP)</button></a>
         <a data-dl="lld.pdf"><button>Download PDF sheets</button></a></div>
@@ -358,6 +358,7 @@
       <button id="btnPrint" title="Print the map">Print</button>
       <button id="btnHelp" title="Keyboard shortcuts (?)">?</button>
       <span class="spacer"></span>
+      <button id="btnEarth" type="button" title="Open Google Earth at the map's centre (the latest imagery, in 3D) in a new tab">Google Earth</button>
       <label><input type="checkbox" id="satellite"> Satellite</label>
     </div>
     <div class="maprow">

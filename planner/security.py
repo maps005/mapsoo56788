@@ -87,8 +87,8 @@ CSP = "; ".join([
     "script-src 'self' https://unpkg.com",
     "style-src 'self' https://unpkg.com 'unsafe-inline'",
     "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.tile.openstreetmap.org "
-    "https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://unpkg.com",
-    "connect-src 'self' https://unpkg.com",  # Leaflet source map (developer tools)
+    "https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://tile.googleapis.com https://unpkg.com",
+    "connect-src 'self' https://unpkg.com https://tile.googleapis.com",  # Leaflet source map; Google map copyright
     "font-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
