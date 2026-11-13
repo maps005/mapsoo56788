@@ -333,11 +333,15 @@ def _north_and_scale(cv, x, y, scale):
     cv.drawRightString(sx + L, sy + 6, f"{nice:g} m")
 
 
-def _legend(cv, x, y):
-    items = [("line", KIND_COLOURS["main"], "Main cable"), ("line", KIND_COLOURS["spur"], "Spur cable"),
-             ("line", KIND_COLOURS["drop"], "Drop cable"), ("dot", KIND_COLOURS["pole"], "Pole"),
-             ("sq", KIND_COLOURS["home"], "Home / MDU")] + \
-            [("tri" if k == "FAT" else "sq", KIND_COLOURS[k], v) for k, v in NODE_LABEL.items()]
+def _legend(cv, x, y, d: Design | None = None):
+    t = sectors.get(d.info.sector if d else None)
+    fibre = t.get("fibre_tools", True)  # other sectors: their own names for lines, supports, premises, equipment
+    items = [("line", KIND_COLOURS["main"], "Main cable" if fibre else t["lines"]["main"]),
+             ("line", KIND_COLOURS["spur"], "Spur cable" if fibre else t["lines"]["spur"]),
+             ("line", KIND_COLOURS["drop"], "Drop cable" if fibre else t["lines"]["drop"]),
+             ("dot", KIND_COLOURS["pole"], "Pole" if fibre else t["support"]),
+             ("sq", KIND_COLOURS["home"], "Home / MDU" if fibre else t["premise"])] + \
+            [("tri" if k == "FAT" else "sq", KIND_COLOURS[k], v if fibre else t["kinds"].get(k, v)) for k, v in NODE_LABEL.items()]
     cv.setFont("Helvetica-Bold", 9)
     cv.setFillColor(colors.black)
     cv.drawString(x, y, "LEGEND")
@@ -394,14 +398,28 @@ def map_pdf(d: Design, st: Stamp, title: str, detail: bool) -> bytes:
         if t:
             cv.drawString(sx + 8, yy, t[:48])
             yy -= 12
-    yy = _legend(cv, sx + 8, yy - 14)
+    yy = _legend(cv, sx + 8, yy - 14, d)
     s = calc.summary(d)
     cv.setFont("Helvetica-Bold", 9)
     cv.drawString(sx + 8, yy - 14, "SUMMARY")
     cv.setFont("Helvetica", 7.5)
-    lines = [f"Poles: {s['poles']} ({s['poles_new']} new)", f"Premises: {s['homes']} / HPs {s['homepasses']}"] + \
-            [f"{k}: {v:,.0f} m" for k, v in s["cable_m"].items()] + \
-            [f"{NODE_LABEL[k]}: {v}" for k, v in s["nodes"].items() if v]
+    t = sectors.get(d.info.sector)
+    if t.get("fibre_tools", True):
+        lines = [f"Poles: {s['poles']} ({s['poles_new']} new)", f"Premises: {s['homes']} / HPs {s['homepasses']}"] + \
+                [f"{k}: {v:,.0f} m" for k, v in s["cable_m"].items()] + \
+                [f"{NODE_LABEL[k]}: {v}" for k, v in s["nodes"].items() if v]
+    else:  # the sector's names: "Distribution main DN160: 240 m", "Valve chamber: 2"
+
+        def line_name(k):
+            m = re.match(r"^(main|spur|drop) (\d+)C$", k)
+            return f"{t['lines'][m.group(1)]} {sectors.size_label(d.info.sector, int(m.group(2)))}" if m else k
+
+        def plural(w):  # "Property" -> "Properties", "Marker post" -> "Marker posts"
+            return w[:-1] + "ies" if w.endswith("y") and w[-2:-1] not in "aeiou" else w + "s"
+        lines = [f"{plural(t['support'])}: {s['poles']} ({s['poles_new']} new)",
+                 f"{plural(t['premise'].split('/')[0].strip())}: {s['homes']} / {t['unit']} {s['homepasses']}"] + \
+                [f"{line_name(k)}: {v:,.0f} m" for k, v in s["cable_m"].items()] + \
+                [f"{t['kinds'].get(k, k)}: {v}" for k, v in s["nodes"].items() if v]
     for i, t in enumerate(lines):
         cv.drawString(sx + 8, yy - 27 - i * 10, t)
     _north_and_scale(cv, sx + 20, m + 70, scale)
@@ -887,7 +905,9 @@ def report_pdf(d: Design, st: Stamp, photo_dir: Path | None) -> bytes:
 # ---------------------------------------------------------------------------
 def home_list_pdf(d: Design, st: Stamp) -> bytes:
     i = d.info
-    story = _head("Home List", d)
+    w = sectors.wording(i.sector)
+    rw = (lambda x: sectors.reword(x, w)) if w else (lambda x: x)  # noqa: E731
+    story = _head(rw("Home List"), d)
     story.append(Paragraph(markup(f"Region: {i.region or '-'}   Zone: {i.zone or '-'}   Cluster: {i.cluster or '-'}"),
                            STYLES["Normal"]))
     totals = []
@@ -904,13 +924,14 @@ def home_list_pdf(d: Design, st: Stamp) -> bytes:
                  "yes" if h.acquired else "", ", ".join(h.fats)] for h in homes]
         rows.append(["Total", hp, "", "", "", "", ""])
         story += [Spacer(1, 6), Paragraph(title, STYLES["Heading3"]),
-                  _table(["Name", "Viable HP", "Field", "Latitude", "Longitude", "Acquired", "Serving FAT"], rows,
+                  _table(["Name", rw("Viable HP") if not w else sectors.get(i.sector)["unit"].capitalize(), "Field",
+                          "Latitude", "Longitude", "Acquired", rw("Serving FAT")], rows,
                          [62 * mm, 18 * mm, 14 * mm, 22 * mm, 22 * mm, 16 * mm, 32 * mm], total_row=True)]
     story += [Spacer(1, 10), Paragraph("Summary", STYLES["Heading3"]),
-              _table(["Building type", "Buildings", "Homepasses"],
+              _table(["Building type", "Buildings", rw("Homepasses")],
                      [[t, n, hp] for t, n, hp in totals] + [["Total", sum(t[1] for t in totals), sum(t[2] for t in totals)]],
                      [70 * mm, 30 * mm, 30 * mm], total_row=True)]
-    return _doc(story, st, "Home List")
+    return _doc(story, st, rw("Home List"))
 
 
 def qa_pdf(d: Design, st: Stamp) -> bytes:

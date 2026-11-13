@@ -7,7 +7,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from .. import calc, splicing
+from .. import calc, sectors, splicing
 from ..model import Design
 from .common import Stamp, clean
 
@@ -229,6 +229,10 @@ def home_list_xlsx(d: Design, st: Stamp) -> bytes:
     ws.title = clean(d.info.cluster or d.info.name or "Home list")[:31] or "Home list"
     headers = ["REGION", "ZONE", "CLUSTER", "GREEN/BROWN FIELD", "NAME", "NATURE OF BUILDING", "VIABLE HP",
                "COMMERCIAL", "LONGITUDE", "LATITUDE", "ACQUIRED", "SERVING FAT"]
+    w = sectors.wording(d.info.sector)
+    if w:  # other sectors: their units and serving equipment
+        headers[6] = sectors.get(d.info.sector)["unit"].upper()
+        headers[11] = sectors.reword("SERVING FAT", [(a.upper(), b.upper()) for a, b in w])
     widths = [12, 12, 12, 16, 34, 18, 10, 12, 13, 13, 11, 18]
     for i, (h, w) in enumerate(zip(headers, widths), start=1):
         c = ws.cell(row=1, column=i, value=h)
@@ -477,7 +481,8 @@ def qa_rows(d: Design, st: Stamp) -> tuple[list[list], list[dict]]:
             ["Revision", st.revision], ["Data hash", st.hash], ["Planned by", i.planned_by or "-"],
             ["Checked by", i.checked_by or "-"], ["Approved by", i.approved_by or "-"],
             ["Validation errors", cnt["errors"]], ["Validation warnings", cnt["warnings"]], ["Notes (information only)", cnt["notes"]],
-            ["Homepasses", s["homepasses"]], ["BOQ total", f"{s['currency']} {s['boq_total']:,.2f}"],
+            [sectors.reword("Homepasses", sectors.wording(i.sector)), s["homepasses"]],
+            ["BOQ total", f"{s['currency']} {s['boq_total']:,.2f}"],
             ["Ready for approval", "yes" if cnt["errors"] == 0 else "no - fix the errors first"]]
     order = {"error": 0, "warning": 1}
     return rows, sorted(issues, key=lambda x: (order.get(x["severity"], 2), x["code"]))

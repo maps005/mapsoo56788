@@ -383,9 +383,10 @@
         <button type="submit">Import</button>
       </form>
       <p class="muted">Files: Excel, CSV, KML/KMZ, GPX, CAD drawings (DXF; DWG where the server can convert it, else save it as DXF)
-        and site photos (JPG/PNG, placed at their GPS position). A drawing's layers are read like a KMZ's folders (POLES, FAT, CABLE 48C...).
-        An Excel workbook can hold several sheets (Poles, Homes, Equipment, Splitters, Cables), all imported in one go.
-        Use the template, or any sheet with named columns (ID, Latitude, Longitude, Type, Height, Viable HP, Kind, Path...).
+        and site photos (JPG/PNG, placed at their GPS position). A drawing's layers are read like a KMZ's folders: a layer's name says
+        what is on it (supports, premises, equipment, lines).
+        An Excel workbook can hold several sheets (the template's Poles, Homes, Equipment, Cables<span data-fibre-only>, Splitters</span>), all imported in one go.
+        Use the template, or any sheet with named columns (ID, Latitude, Longitude, Type, Height, Units, Kind, Path...).
         A project's own Project Data Excel export can be uploaded back. Rows without valid coordinates are kept and flagged so you can fix them below.</p>
       <pre id="importReport" class="report"></pre>
     </div>

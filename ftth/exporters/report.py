@@ -342,8 +342,8 @@ def sections(d: Design) -> list[Section]:
     intro.h("1.1 Project details")
     intro.kv([["Project", i.name], ["Area", i.area], ["Client", i.client],
               ["Region / zone", " / ".join(x for x in (i.region, i.zone) if x)], ["Cluster", i.cluster],
-              ["Survey date", i.survey_date], ["Surveyor(s)", i.surveyors], ["Prepared by", i.prepared_by],
-              ["Design style", STYLE_LABEL.get(i.design_style, i.design_style)]])
+              ["Survey date", i.survey_date], ["Surveyor(s)", i.surveyors], ["Prepared by", i.prepared_by]]
+             + ([["Design style", STYLE_LABEL.get(i.design_style, i.design_style)]] if fibre else []))
     intro.h("1.2 Feeder and interception" if fibre else "1.2 Supply and connection point")
     roots = [x for x in [i.interception_node, *i.interception_nodes] if x]
     intro.kv([["OLT", i.olt_name], ["OLT ports available", i.olt_ports_available],

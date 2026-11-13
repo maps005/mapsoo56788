@@ -84,7 +84,19 @@ function renderScript() {
     box.value = saved;
     box.dataset.pid = S.pid;
   }
-  $("#scriptHelp").textContent = SCRIPT_HELP;
+  $("#scriptHelp").textContent = scriptHelp();
+}
+function scriptHelp() {  // this project's commands; other network sectors: what the equipment words and size mean
+  const t = S.st?.sector, kind = scriptKind();
+  const keep = { network: "Network", building: "Building", dam: "Dam" }[kind];
+  const help = SCRIPT_HELP.split("\n\n").filter((b) => !/^(Network|Building|Dam)\n/.test(b) || b.startsWith(keep + "\n")).join("\n\n");
+  if (!t || t.fibre_tools || kind !== "network") return help;
+  const SCRIPT_HELP_ = help;
+  const words = { pop: "POP", closure: "ENCLOSURE", jb: "JB", pon: "PON", fat: "FAT", slack: "SLACK" };
+  const legend = Object.entries(words).map(([w, k]) => `      ${w.padEnd(8)}= ${t.kinds[k] || k}`).join("\n");
+  return SCRIPT_HELP_.replace("<cores>", `<${t.size.split(" (")[0].toLowerCase()}>`)
+    .replace("  pop | closure | jb | pon | fat | slack <ID> <pt>", `  <equipment word> <ID> <pt>, the words in this project:\n${legend}`)
+    .replace("pole <ID>", `pole <ID> (a ${t.support.toLowerCase()})`).replace("home <ID>", `home <ID> (a ${t.premise.split("/")[0].trim().toLowerCase()})`);
 }
 $("#scriptText")?.addEventListener("input", (e) => {
   try { localStorage.setItem(`script:${S.pid}`, e.target.value); } catch (_) { /* storage blocked */ }

@@ -85,7 +85,8 @@ def relevant(d: Design) -> list[str]:
         return ["dam_drawings", "dam_report", "bom", "boq", "qa", "project"]
     if sectors.get(d.info.sector).get("construction"):
         return [k for k in DELIVERABLES if k not in NETWORK_ONLY | DAM_ONLY]
-    return [k for k in DELIVERABLES if k not in CONSTRUCTION_ONLY | DAM_ONLY]
+    fibre = sectors.get(d.info.sector).get("fibre_tools", True)  # splicing is a fibre network's
+    return [k for k in DELIVERABLES if k not in CONSTRUCTION_ONLY | DAM_ONLY and (fibre or k != "splicing")]
 
 
 # design sections each deliverable is generated from (to flag only the outputs a change affects)
